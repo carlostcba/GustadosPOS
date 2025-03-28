@@ -128,29 +128,93 @@ export function ProductManagement() {
       setError('No se ha seleccionado ningún producto');
       return;
     }
-
+  
     try {
       setError(null);
       setUpdatingImage(true);
-
-      const { error: updateError } = await supabase
+      
+      // Log para depuración
+      console.log('ID del producto a actualizar:', selectedProductForImage.id);
+      console.log('Datos de la imagen a asignar:', {
+        url: image.url,
+        id: image.id
+      });
+  
+      // Verificar si el producto existe antes de actualizar
+      const { data: existingProduct, error: checkError } = await supabase
         .from('products')
-        .update({
-          image_url: image.url,
-          product_image_id: image.id,
-          updated_at: new Date().toISOString(),
+        .select('id, name')
+        .eq('id', selectedProductForImage.id)
+        .single();
+      
+      if (checkError) {
+        console.error('Error al verificar existencia del producto:', checkError);
+        throw new Error(`No se pudo encontrar el producto: ${checkError.message}`);
+      }
+      
+      console.log('Producto encontrado:', existingProduct);
+      
+      // Actualizar sólo un campo primero para probar
+      const { data: updateResult, error: updateError } = await supabase
+        .from('products')
+        .update({ 
+          image_url: image.url 
         })
-        .eq('id', selectedProductForImage.id);
-
+        .eq('id', selectedProductForImage.id)
+        .select();
+  
+      console.log('Resultado de actualización parcial:', updateResult, updateError);
+      
       if (updateError) throw updateError;
-
-      await fetchProducts();
+      
+      // Si la actualización anterior tuvo éxito, intentar actualizar ambos campos
+      if (updateResult && updateResult.length > 0) {
+        const { data: fullUpdateResult, error: fullUpdateError } = await supabase
+          .from('products')
+          .update({ 
+            image_url: image.url,
+            product_image_id: image.id,
+            updated_at: new Date().toISOString() 
+          })
+          .eq('id', selectedProductForImage.id)
+          .select();
+        
+        console.log('Resultado de actualización completa:', fullUpdateResult, fullUpdateError);
+        
+        if (fullUpdateError) throw fullUpdateError;
+      }
+  
+      // Verificar explícitamente el estado final
+      const { data: finalProduct, error: finalError } = await supabase
+        .from('products')
+        .select('id, name, image_url, product_image_id')
+        .eq('id', selectedProductForImage.id)
+        .single();
+      
+      console.log('Estado final del producto:', finalProduct, finalError);
+      
+      if (finalError) throw finalError;
+  
+      // Actualizar el estado local solo si la verificación fue exitosa
+      if (finalProduct) {
+        setProducts(products.map(p => 
+          p.id === selectedProductForImage.id 
+            ? { ...p, image_url: finalProduct.image_url, product_image_id: finalProduct.product_image_id }
+            : p
+        ));
+        
+        setError('✅ Imagen asignada correctamente');
+        setTimeout(() => setError(null), 3000);
+      } else {
+        throw new Error('No se pudo verificar la actualización del producto');
+      }
+  
       setShowGallery(false);
       setSelectedProductForImage(null);
       setSearchQuery('');
     } catch (error: any) {
-      console.error('Error updating product image:', error);
-      setError('Error al actualizar la imagen: ' + (error.message || 'Error desconocido'));
+      console.error('Error al actualizar la imagen del producto:', error);
+      setError('Error: ' + (error.message || 'Error desconocido'));
     } finally {
       setUpdatingImage(false);
     }
