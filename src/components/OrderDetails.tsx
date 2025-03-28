@@ -3,22 +3,6 @@ import { X, Plus, Minus, Search, Package, Filter, Trash2, Save, AlertTriangle, A
 import { supabase } from '../lib/supabase';
 import type { Product, Category } from '../lib/types';
 
-type ProductRelation = {
-  is_weighable: boolean;
-  unit_label: string;
-};
-
-// Esta interfaz refleja exactamente la estructura que devuelve Supabase
-type OrderItemResponse = {
-  id: string;
-  product_id: string;
-  product_name: string;
-  quantity: number;
-  unit_price: number;
-  total_price: number;
-  products?: ProductRelation[] | null;
-};
-
 type OrderItem = {
   id: string;
   product_id: string;
@@ -28,6 +12,12 @@ type OrderItem = {
   total_price: number;
   is_weighable: boolean;
   unit_label: string;
+};
+
+type Order = {
+  id: string;
+  status: string;
+  // Otros campos que puedan ser necesarios
 };
 
 type OrderDetailsProps = {
@@ -50,21 +40,35 @@ export function OrderDetails({ orderId, onClose, userRole }: OrderDetailsProps) 
   const [tempItems, setTempItems] = useState<OrderItem[]>([]);
   const [showCloseConfirmation, setShowCloseConfirmation] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [orderStatus, setOrderStatus] = useState<string>('');
   const itemsPerPage = 8;
 
   useEffect(() => {
-    fetchOrderItems();
+    fetchOrderDetails();
   }, [orderId]);
 
   useEffect(() => {
     setTempItems(items);
   }, [items]);
 
-  async function fetchOrderItems() {
+  async function fetchOrderDetails() {
     try {
       setLoading(true);
       setError(null);
 
+      // Primero obtenemos la información básica de la orden para conocer su estado
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .select('status')
+        .eq('id', orderId)
+        .single();
+
+      if (orderError) throw orderError;
+      
+      // Guardamos el estado de la orden
+      setOrderStatus(orderData.status);
+
+      // Luego obtenemos los items de la orden
       const { data, error } = await supabase
         .from('order_items')
         .select(`
@@ -84,11 +88,12 @@ export function OrderDetails({ orderId, onClose, userRole }: OrderDetailsProps) 
 
       if (error) throw error;
 
-      // Transformar los datos para el formato correcto de OrderItem
-      const transformedData: OrderItem[] = (data || []).map(item => {
-        // En supabase, las relaciones se devuelven como arrays
-        // Tomamos el primer elemento si existe
-        const productData = item.products && item.products.length > 0 ? item.products[0] : null;
+      const transformedData = (data || []).map(item => {
+        // En Supabase, cuando usamos join de tablas con (), la relación viene como un array
+        // Necesitamos extraer el primer elemento (si existe)
+        const productData = item.products && Array.isArray(item.products) && item.products.length > 0 
+          ? item.products[0] 
+          : { is_weighable: false, unit_label: 'un' };
         
         return {
           id: item.id,
@@ -97,8 +102,8 @@ export function OrderDetails({ orderId, onClose, userRole }: OrderDetailsProps) 
           quantity: item.quantity,
           unit_price: item.unit_price,
           total_price: item.total_price,
-          is_weighable: productData?.is_weighable || false,
-          unit_label: productData?.unit_label || 'un'
+          is_weighable: productData.is_weighable || false,
+          unit_label: productData.unit_label || 'un'
         };
       });
 
@@ -106,7 +111,7 @@ export function OrderDetails({ orderId, onClose, userRole }: OrderDetailsProps) 
       setTempItems(transformedData);
       setUnsavedChanges(false);
     } catch (error: any) {
-      console.error('Error fetching order items:', error);
+      console.error('Error fetching order details:', error);
       setError('Error al cargar los detalles del pedido');
     } finally {
       setLoading(false);
@@ -160,7 +165,7 @@ export function OrderDetails({ orderId, onClose, userRole }: OrderDetailsProps) 
     if (existingItem) {
       handleUpdateQuantity(existingItem.id, existingItem.quantity + 1);
     } else {
-      const newItem: OrderItem = {
+      const newItem = {
         id: `temp-${Date.now()}`,
         product_id: product.id,
         product_name: product.name,
@@ -236,7 +241,7 @@ export function OrderDetails({ orderId, onClose, userRole }: OrderDetailsProps) 
 
       if (orderError) throw orderError;
 
-      await fetchOrderItems();
+      await fetchOrderDetails();
       setUnsavedChanges(false);
     } catch (error: any) {
       console.error('Error saving changes:', error);
@@ -279,7 +284,10 @@ export function OrderDetails({ orderId, onClose, userRole }: OrderDetailsProps) 
     }
   };
 
-  const isEditable = userRole === 'seller';
+  // Determinar si se puede editar:
+  // - Solo los vendedores pueden editar, y únicamente cuando la orden NO está cancelada
+  // - Los cajeros nunca pueden editar
+  const isEditable = userRole === 'seller' && orderStatus !== 'cancelled';
 
   return (
     <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
