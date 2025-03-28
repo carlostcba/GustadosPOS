@@ -57,6 +57,9 @@ function PaymentMenu({ order, onProcess, onClose }: PaymentMenuProps) {
   const [discountPercent, setDiscountPercent] = useState(0);
   const [couponCode, setCouponCode] = useState('');
   const [couponError, setCouponError] = useState<string | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethodType>(
+    (order.payment_method as PaymentMethodType) || 'cash'
+  );
   const [finalAmount, setFinalAmount] = useState(
     order.is_preorder ? 
       order.status === 'pending' ? order.deposit_amount : order.remaining_amount 
@@ -201,38 +204,63 @@ function PaymentMenu({ order, onProcess, onClose }: PaymentMenuProps) {
           </div>
         )}
 
-        <div className="p-4 space-y-2">
-          <button
-            onClick={() => onProcess('cash', discountPercent)}
-            className="flex items-center justify-between w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 rounded-md"
-          >
+        <div className="p-4 space-y-3">
+          <p className="text-sm font-medium text-gray-700 mb-2">Método de Pago</p>
+          
+          <label className={`flex items-center justify-between w-full px-4 py-3 text-sm border rounded-md cursor-pointer ${selectedPaymentMethod === 'cash' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
             <div className="flex items-center">
-              <Banknotes className="h-4 w-4 mr-2" />
+              <input 
+                type="radio" 
+                name="paymentMethod" 
+                value="cash" 
+                checked={selectedPaymentMethod === 'cash'} 
+                onChange={() => setSelectedPaymentMethod('cash')}
+                className="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500"
+              />
+              <Banknotes className="h-4 w-4 mr-2 text-gray-600" />
               <span>Efectivo</span>
             </div>
             <span className="font-medium">${finalAmount.toFixed(2)}</span>
-          </button>
+          </label>
 
-          <button
-            onClick={() => onProcess('credit', discountPercent)}
-            className="flex items-center justify-between w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 rounded-md"
-          >
+          <label className={`flex items-center justify-between w-full px-4 py-3 text-sm border rounded-md cursor-pointer ${selectedPaymentMethod === 'credit' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
             <div className="flex items-center">
-              <CreditCard className="h-4 w-4 mr-2" />
+              <input 
+                type="radio" 
+                name="paymentMethod" 
+                value="credit" 
+                checked={selectedPaymentMethod === 'credit'} 
+                onChange={() => setSelectedPaymentMethod('credit')}
+                className="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500"
+              />
+              <CreditCard className="h-4 w-4 mr-2 text-gray-600" />
               <span>Tarjeta</span>
             </div>
             <span className="font-medium">${finalAmount.toFixed(2)}</span>
-          </button>
+          </label>
 
-          <button
-            onClick={() => onProcess('transfer', discountPercent)}
-            className="flex items-center justify-between w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-100 rounded-md"
-          >
+          <label className={`flex items-center justify-between w-full px-4 py-3 text-sm border rounded-md cursor-pointer ${selectedPaymentMethod === 'transfer' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
             <div className="flex items-center">
-              <ArrowRight className="h-4 w-4 mr-2" />
+              <input 
+                type="radio" 
+                name="paymentMethod" 
+                value="transfer" 
+                checked={selectedPaymentMethod === 'transfer'} 
+                onChange={() => setSelectedPaymentMethod('transfer')}
+                className="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500"
+              />
+              <ArrowRight className="h-4 w-4 mr-2 text-gray-600" />
               <span>Transferencia</span>
             </div>
             <span className="font-medium">${finalAmount.toFixed(2)}</span>
+          </label>
+
+          <button
+            onClick={() => onProcess(selectedPaymentMethod, discountPercent)}
+            className="mt-4 w-full flex justify-center items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          >
+            <Receipt className="h-4 w-4 mr-2" />
+            Procesar Pago
           </button>
         </div>
       </div>
