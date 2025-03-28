@@ -3,15 +3,31 @@ import { X, Plus, Minus, Search, Package, Filter, Trash2, Save, AlertTriangle, A
 import { supabase } from '../lib/supabase';
 import type { Product, Category } from '../lib/types';
 
+type ProductRelation = {
+  is_weighable: boolean;
+  unit_label: string;
+};
+
+// Esta interfaz refleja exactamente la estructura que devuelve Supabase
+type OrderItemResponse = {
+  id: string;
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  products?: ProductRelation[] | null;
+};
+
 type OrderItem = {
   id: string;
+  product_id: string;
   product_name: string;
   quantity: number;
   unit_price: number;
   total_price: number;
   is_weighable: boolean;
   unit_label: string;
-  product_id: string;
 };
 
 type OrderDetailsProps = {
@@ -68,11 +84,23 @@ export function OrderDetails({ orderId, onClose, userRole }: OrderDetailsProps) 
 
       if (error) throw error;
 
-      const transformedData = data?.map(item => ({
-        ...item,
-        is_weighable: item.products?.is_weighable || false,
-        unit_label: item.products?.unit_label || 'un'
-      })) || [];
+      // Transformar los datos para el formato correcto de OrderItem
+      const transformedData: OrderItem[] = (data || []).map(item => {
+        // En supabase, las relaciones se devuelven como arrays
+        // Tomamos el primer elemento si existe
+        const productData = item.products && item.products.length > 0 ? item.products[0] : null;
+        
+        return {
+          id: item.id,
+          product_id: item.product_id,
+          product_name: item.product_name,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          total_price: item.total_price,
+          is_weighable: productData?.is_weighable || false,
+          unit_label: productData?.unit_label || 'un'
+        };
+      });
 
       setItems(transformedData);
       setTempItems(transformedData);
@@ -132,7 +160,7 @@ export function OrderDetails({ orderId, onClose, userRole }: OrderDetailsProps) 
     if (existingItem) {
       handleUpdateQuantity(existingItem.id, existingItem.quantity + 1);
     } else {
-      const newItem = {
+      const newItem: OrderItem = {
         id: `temp-${Date.now()}`,
         product_id: product.id,
         product_name: product.name,

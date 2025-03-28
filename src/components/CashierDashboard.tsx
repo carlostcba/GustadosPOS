@@ -15,7 +15,7 @@ import {
 import { useAuth } from '../hooks/useAuth';
 import { OrderDetails } from './OrderDetails';
 import { CashRegisterReport } from './CashRegisterReport';
-import { ExpenseForm } from './ExpenseForm';
+import { CashRegisterExpenses } from './CashRegisterExpenses';
 
 type Order = {
   id: string;
@@ -44,9 +44,11 @@ type CashRegister = {
   expenses_total: number;
 };
 
+type PaymentMethodType = 'cash' | 'credit' | 'transfer';
+
 type PaymentMenuProps = {
   order: Order;
-  onProcess: (method: 'cash' | 'credit' | 'transfer', discount?: number) => void;
+  onProcess: (method: PaymentMethodType, discount?: number) => void;
   onClose: () => void;
 };
 
@@ -277,7 +279,7 @@ export function CashierDashboard() {
         .from('orders')
         .select('*')
         .eq('status', 'pending')
-        .order('delivery_date', { ascending: true, nullsLast: true })
+        .order('delivery_date', { ascending: true }) // Removido nullsLast que no es compatible
         .order('created_at', { ascending: true });
 
       if (error) throw error;
@@ -357,11 +359,14 @@ export function CashierDashboard() {
 
       if (error) throw error;
 
-      setClosedRegister({
+      // Crear un objeto con closing_amount definido como number (no null)
+      const closedRegisterData: CashRegister = {
         ...activeRegister,
         closing_amount: closingAmount,
         closed_at: closeTime
-      });
+      };
+
+      setClosedRegister(closedRegisterData);
       setShowReport(true);
       setIsClosing(false);
       setActiveRegister(null);
@@ -371,7 +376,7 @@ export function CashierDashboard() {
     }
   }
 
-  async function processPayment(order: Order, paymentMethod: 'cash' | 'credit' | 'transfer', discountPercent: number = 0) {
+  async function processPayment(order: Order, paymentMethod: PaymentMethodType, discountPercent: number = 0) {
     if (!user || !activeRegister) return;
     setError(null);
 
@@ -427,19 +432,38 @@ export function CashierDashboard() {
 
       if (orderError) throw orderError;
 
-      // Update cash register totals
-      const updateField = `${paymentMethod}_sales`;
-      const { error: registerError } = await supabase
-        .from('cash_registers')
-        .update({
-          [updateField]: activeRegister[updateField] + amount,
-          ...(order.is_preorder && order.status === 'pending'
-            ? { deposits_received: activeRegister.deposits_received + amount }
-            : {}),
-        })
-        .eq('id', activeRegister.id);
-
-      if (registerError) throw registerError;
+      // Update cash register totals - corregida la indexación dinámica
+      if (paymentMethod === 'cash') {
+        await supabase
+          .from('cash_registers')
+          .update({
+            cash_sales: activeRegister.cash_sales + amount,
+            ...(order.is_preorder && order.status === 'pending'
+              ? { deposits_received: activeRegister.deposits_received + amount }
+              : {}),
+          })
+          .eq('id', activeRegister.id);
+      } else if (paymentMethod === 'credit') {
+        await supabase
+          .from('cash_registers')
+          .update({
+            card_sales: activeRegister.card_sales + amount,
+            ...(order.is_preorder && order.status === 'pending'
+              ? { deposits_received: activeRegister.deposits_received + amount }
+              : {}),
+          })
+          .eq('id', activeRegister.id);
+      } else if (paymentMethod === 'transfer') {
+        await supabase
+          .from('cash_registers')
+          .update({
+            transfer_sales: activeRegister.transfer_sales + amount,
+            ...(order.is_preorder && order.status === 'pending'
+              ? { deposits_received: activeRegister.deposits_received + amount }
+              : {}),
+          })
+          .eq('id', activeRegister.id);
+      }
 
       // Add to order queue if payment completes the order
       if (newStatus === 'paid') {
@@ -773,12 +797,16 @@ export function CashierDashboard() {
         <OrderDetails
           orderId={selectedOrderId}
           onClose={() => setSelectedOrderId(null)}
+          userRole="cashier" // Añadido el valor requerido para la prop userRole
         />
       )}
 
       {showReport && closedRegister && (
         <CashRegisterReport
-          register={closedRegister}
+          register={{
+            ...closedRegister,
+            closing_amount: closedRegister.closing_amount || 0  // Aseguramos que closing_amount sea number, no null
+          }}
           onClose={() => {
             setShowReport(false);
             setClosedRegister(null);
@@ -787,7 +815,7 @@ export function CashierDashboard() {
       )}
 
       {showExpenseForm && activeRegister && (
-        <ExpenseForm
+        <CashRegisterExpenses
           registerId={activeRegister.id}
           onClose={() => setShowExpenseForm(false)}
           onSuccess={() => {

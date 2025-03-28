@@ -37,6 +37,19 @@ export function Auth() {
     }
   };
 
+  // Configurar la autenticación con evento onAuthStateChange
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN') {
+        // El usuario ha iniciado sesión correctamente
+      }
+    });
+    
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
       <div className="max-w-md w-full bg-white rounded-lg shadow-md p-8">
@@ -83,11 +96,6 @@ export function Auth() {
                 button_label: 'Iniciar Sesión',
               },
             },
-          }}
-          onSubmit={(formData) => {
-            if (formData.email && formData.password) {
-              handleEmailSignIn(formData.email, formData.password);
-            }
           }}
         />
 

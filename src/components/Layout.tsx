@@ -6,7 +6,7 @@ import { useAuth } from '../hooks/useAuth';
 
 type UserProfile = {
   id: string;
-  role: 'seller' | 'cashier';
+  role: 'seller' | 'cashier' | 'manager';
   full_name: string;
 };
 
@@ -34,14 +34,19 @@ export function Layout() {
       if (error) throw error;
       setProfile(data);
 
-      // Redirect cashiers to orders if they try to access new-order
+      // Redirect cashiers to cashier if they try to access new-order
       if (data.role === 'cashier' && location.pathname === '/new-order') {
-        navigate('/orders');
+        navigate('/cashier');
+      }
+      
+      // Redirect cashiers to cashier if they try to access products
+      if (data.role === 'cashier' && location.pathname === '/products') {
+        navigate('/cashier');
       }
 
-      // Make orders the default page for cashiers
+      // Make cashier the default page for cashiers
       if (data.role === 'cashier' && location.pathname === '/') {
-        navigate('/orders');
+        navigate('/cashier');
       }
 
       // Make new-order the default page for sellers
@@ -117,30 +122,32 @@ export function Layout() {
                 )}
 
                 {profile?.role === 'cashier' && (
-                  <>
-                    <Link
-                      to="/products"
-                      className={`px-3 py-2 rounded-md text-sm font-medium ${
-                        location.pathname === '/products'
-                          ? 'bg-indigo-100 text-indigo-700'
-                          : 'text-gray-600 hover:text-gray-900'
-                      }`}
-                    >
-                      <Package className="h-5 w-5 inline-block mr-1" />
-                      Productos
-                    </Link>
-                    <Link
-                      to="/cashier"
-                      className={`px-3 py-2 rounded-md text-sm font-medium ${
-                        location.pathname === '/cashier'
-                          ? 'bg-indigo-100 text-indigo-700'
-                          : 'text-gray-600 hover:text-gray-900'
-                      }`}
-                    >
-                      <CircleDollarSign className="h-5 w-5 inline-block mr-1" />
-                      Caja
-                    </Link>
-                  </>
+                  <Link
+                    to="/cashier"
+                    className={`px-3 py-2 rounded-md text-sm font-medium ${
+                      location.pathname === '/cashier'
+                        ? 'bg-indigo-100 text-indigo-700'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <CircleDollarSign className="h-5 w-5 inline-block mr-1" />
+                    Caja
+                  </Link>
+                )}
+                
+                {/* Acceso a Productos solo para gerentes */}
+                {profile?.role === 'manager' && (
+                  <Link
+                    to="/products"
+                    className={`px-3 py-2 rounded-md text-sm font-medium ${
+                      location.pathname === '/products'
+                        ? 'bg-indigo-100 text-indigo-700'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <Package className="h-5 w-5 inline-block mr-1" />
+                    Productos
+                  </Link>
                 )}
               </div>
             </div>
@@ -149,7 +156,11 @@ export function Layout() {
               <div className="text-sm text-gray-600">
                 {profile?.full_name}
                 <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                  {profile?.role === 'seller' ? 'Vendedor' : 'Cajero'}
+                  {profile?.role === 'seller' 
+                    ? 'Vendedor' 
+                    : profile?.role === 'manager' 
+                      ? 'Gerente' 
+                      : 'Cajero'}
                 </span>
               </div>
               <button

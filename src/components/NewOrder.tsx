@@ -36,7 +36,7 @@ export function NewOrder() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [tempQuantity, setTempQuantity] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
-  const [depositPercentage, setDepositPercentage] = useState(50); // Default 50%
+  const depositPercentage = 50; // Default 50% (no longer user-modifiable)
 
   // Refs for handling long press
   const pressTimer = useRef<NodeJS.Timeout | null>(null);
@@ -457,23 +457,6 @@ export function NewOrder() {
                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                       />
                     </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">
-                        Porcentaje de Seña
-                      </label>
-                      <select
-                        value={depositPercentage}
-                        onChange={(e) => setDepositPercentage(parseInt(e.target.value))}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      >
-                        <option value={30}>30%</option>
-                        <option value={40}>40%</option>
-                        <option value={50}>50%</option>
-                        <option value={60}>60%</option>
-                        <option value={70}>70%</option>
-                      </select>
-                    </div>
                   </>
                 )}
               </div>
@@ -535,16 +518,6 @@ export function NewOrder() {
                   <div className="text-lg font-medium">
                     Total: ${calculateTotal().toFixed(2)}
                   </div>
-                  {isPreorder && (
-                    <>
-                      <div className="text-sm text-gray-500">
-                        Seña ({depositPercentage}%): ${calculateDeposit().toFixed(2)}
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        Restante: ${(calculateTotal() - calculateDeposit()).toFixed(2)}
-                      </div>
-                    </>
-                  )}
                 </div>
 
                 <div className="grid grid-cols-3 gap-2">
