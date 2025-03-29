@@ -1,3 +1,5 @@
+// Version 3
+
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
@@ -524,23 +526,22 @@ export function CashierDashboard() {
   async function processPayment(order: Order, paymentMethod: PaymentMethodType, discountPercent: number = 0, customDepositAmount?: number) {
     if (!user || !activeRegister) return;
     setError(null);
-
+  
     try {
       // Determine payment amount based on order status and custom deposit if provided
       let baseAmount = order.is_preorder ? 
         order.status === 'pending' ? 
-          // Si se proporciona un monto de seña personalizado, usarlo; de lo contrario, usar el valor predeterminado
           (customDepositAmount !== undefined ? customDepositAmount : order.deposit_amount) 
           : order.remaining_amount
         : order.total_amount;
       
-      // Apply discount if any
+      // Calculate discount amount if any
       let discountAmount = 0;
       if (discountPercent > 0) {
         discountAmount = (baseAmount * discountPercent) / 100;
         baseAmount = baseAmount - discountAmount;
       }
-
+  
       // Si es un pedido anticipado y estamos cobrando la seña con un monto personalizado,
       // necesitamos actualizar el registro de la orden con los nuevos montos
       if (order.is_preorder && order.status === 'pending' && customDepositAmount !== undefined) {
@@ -557,22 +558,20 @@ export function CashierDashboard() {
         if (updateOrderError) throw updateOrderError;
       }
       
-      // Create payment record
+      // Create payment record - MODIFICADO: quitamos discount_amount
       const { data: payment, error: paymentError } = await supabase
         .from('payments')
         .insert({
           order_id: order.id,
           amount: baseAmount,
           payment_method: paymentMethod,
-          is_deposit: order.is_preorder && order.status === 'pending',
-          discount_percentage: discountPercent > 0 ? discountPercent : null,
-          discount_amount: discountAmount > 0 ? discountAmount : null
+          is_deposit: order.is_preorder && order.status === 'pending'
         })
         .select()
         .single();
-
+  
       if (paymentError) throw paymentError;
-
+  
       // If there's a discount, create coupon usage record
       if (discountPercent > 0) {
         // Intentamos encontrar el cupón que se aplicó
@@ -592,28 +591,47 @@ export function CashierDashboard() {
               coupon_id: coupons[0].id,
               discount_amount: discountAmount,
             });
-
+  
           if (usageError) console.error('Error registrando uso de cupón:', usageError);
         }
       }
-
+  
       // Update order status and payment info
       const newStatus = order.is_preorder ? 
         order.status === 'pending' ? 'processing' : 'paid' : 'paid';
         
+      // Prepare update object for the order
+      const orderUpdateData: Record<string, any> = {
+        status: newStatus,
+        cashier_id: user.id,
+        payment_method: paymentMethod,
+      };
+      
+      // Add payment date logic based on order status
+      const currentDate = new Date().toISOString();
+      
+      if (order.is_preorder) {
+        if (order.status === 'pending') {
+          // Es el primer pago (seña)
+          orderUpdateData.first_payment_date = currentDate;
+          orderUpdateData.last_payment_date = currentDate;
+        } else if (order.status === 'processing') {
+          // Es el pago final
+          orderUpdateData.last_payment_date = currentDate;
+        }
+      } else {
+        // Para órdenes regulares, ambas fechas son iguales
+        orderUpdateData.first_payment_date = currentDate;
+        orderUpdateData.last_payment_date = currentDate;
+      }
+      
       const { error: orderError } = await supabase
         .from('orders')
-        .update({
-          status: newStatus,
-          cashier_id: user.id,
-          payment_method: paymentMethod,
-          // Update the last_payment_date
-          last_payment_date: new Date().toISOString()
-        })
+        .update(orderUpdateData)
         .eq('id', order.id);
-
+  
       if (orderError) throw orderError;
-
+  
       // Update cash register totals based on payment method
       let updateObject: Record<string, any> = {};
       
@@ -636,7 +654,7 @@ export function CashierDashboard() {
         .eq('id', activeRegister.id);
         
       if (registerError) throw registerError;
-
+  
       // Add to order queue if payment completes the order
       if (newStatus === 'paid') {
         const { error: queueError } = await supabase
@@ -646,10 +664,10 @@ export function CashierDashboard() {
             priority: order.is_preorder ? 1 : 0, // Pre-orders get higher priority
             status: 'waiting'
           });
-
+  
         if (queueError) throw queueError;
       }
-
+  
       setShowPaymentMenu(null);
       
       // Refresh data
