@@ -6,18 +6,16 @@ import {
   Banknote as Banknotes, 
   ArrowRight, 
   XCircle,
-  ChevronDown,
   Percent,
   Receipt,
   Loader2,
-  Save,
   PlusCircle,
   MinusCircle
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { OrderDetails } from './OrderDetails';
 import { CashRegisterReport } from './CashRegisterReport';
-import { CashRegisterExpenses } from './CashRegisterExpenses';
+import { CashRegisterExpenses } from '../components/CashRegisterExpenses';
 
 type Order = {
   id: string;
@@ -286,35 +284,103 @@ export function CashierDashboard() {
       fetchOrders();
       fetchActiveRegister();
 
-      const channel = supabase
-        .channel('cashier-updates')
+      // Configuración mejorada de canales para escuchar todos los cambios relevantes
+      
+      // Canal para inserción de nuevas órdenes (sin filtro para capturar todas las nuevas)
+      const newOrdersChannel = supabase
+        .channel('new-orders-channel')
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'orders' },
-          () => fetchOrders()
+          { 
+            event: 'INSERT', 
+            schema: 'public', 
+            table: 'orders'
+          },
+          (payload) => {
+            console.log('Nueva orden insertada:', payload);
+            fetchOrders();
+          }
+        )
+        .subscribe();
+      
+      // Canal para actualizaciones de órdenes existentes
+      const updateOrdersChannel = supabase
+        .channel('update-orders-channel')
+        .on(
+          'postgres_changes',
+          { 
+            event: 'UPDATE', 
+            schema: 'public', 
+            table: 'orders'
+          },
+          (payload) => {
+            console.log('Orden actualizada:', payload);
+            fetchOrders();
+          }
         )
         .subscribe();
 
+      // Canal separado para el registro de caja
+      const cashRegisterChannel = supabase
+        .channel('cash-register-channel')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'cash_registers' },
+          (payload) => {
+            console.log('Cambio en registro de caja:', payload);
+            fetchActiveRegister();
+          }
+        )
+        .subscribe();
+
+      // Iniciar un intervalo de actualización como respaldo
+      const intervalId = setInterval(() => {
+        console.log('Actualizando órdenes por intervalo...');
+        fetchOrders();
+      }, 30000); // Actualizar cada 30 segundos como respaldo
+
       return () => {
-        supabase.removeChannel(channel);
+        clearInterval(intervalId);
+        supabase.removeChannel(newOrdersChannel);
+        supabase.removeChannel(updateOrdersChannel);
+        supabase.removeChannel(cashRegisterChannel);
       };
     }
   }, [user]);
 
   async function fetchOrders() {
     try {
+      console.log('Iniciando fetchOrders...');
+      
+      // Realizar la consulta con una "clave aleatoria" para evitar cacheo
+      const timestamp = new Date().getTime();
       const { data, error } = await supabase
         .from('orders')
         .select('*')
         .eq('status', 'pending')
         .order('delivery_date', { ascending: true })
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true })
+        .limit(100) // Asegurar que no haya límite implícito
+        .then(result => {
+          // Añadir un log para verificar la respuesta exacta
+          console.log(`Respuesta de Supabase (${timestamp}):`, result);
+          return result;
+        });
 
       if (error) throw error;
-      setOrders(data || []);
-    } catch (error) {
+      
+      console.log('Órdenes obtenidas:', data?.length || 0, 'pendientes');
+      
+      // Verificar si hay cambios reales antes de actualizar el estado
+      if (JSON.stringify(data) !== JSON.stringify(orders)) {
+        console.log('Actualizando estado de órdenes - hay cambios');
+        setOrders(data || []);
+      } else {
+        console.log('No hay cambios en las órdenes');
+      }
+    } catch (error: any) {
       console.error('Error fetching orders:', error);
-      setError('Error al cargar los pedidos');
+      setError('Error al cargar los pedidos: ' + error.message);
     }
   }
 
@@ -334,9 +400,9 @@ export function CashierDashboard() {
       }
       
       setActiveRegister(data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching active register:', error);
-      setError('Error al cargar el estado de la caja');
+      setError('Error al cargar el estado de la caja: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -363,7 +429,7 @@ export function CashierDashboard() {
 
       if (error) throw error;
       setActiveRegister(data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error starting cash register:', error);
       setError('Error al abrir la caja. Por favor intente nuevamente.');
     }
@@ -398,7 +464,7 @@ export function CashierDashboard() {
       setShowReport(true);
       setIsClosing(false);
       setActiveRegister(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error closing register:', error);
       setError('Error al cerrar la caja. Por favor intente nuevamente.');
     }
@@ -460,7 +526,7 @@ export function CashierDashboard() {
 
       if (orderError) throw orderError;
 
-      // Update cash register totals - corregida la indexación dinámica
+      // Update cash register totals
       if (paymentMethod === 'cash') {
         await supabase
           .from('cash_registers')
@@ -507,8 +573,10 @@ export function CashierDashboard() {
       }
 
       setShowPaymentMenu(null);
+      
+      // Forzar actualización inmediata
       await Promise.all([fetchOrders(), fetchActiveRegister()]);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error processing payment:', error);
       setError('Error al procesar el pago. Por favor intente nuevamente.');
     }

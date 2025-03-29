@@ -36,7 +36,6 @@ export function NewOrder() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [tempQuantity, setTempQuantity] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
-  const depositPercentage = 50; // Default 50% (no longer user-modifiable)
 
   // Refs for handling long press
   const pressTimer = useRef<NodeJS.Timeout | null>(null);
@@ -134,11 +133,6 @@ export function NewOrder() {
 
   const calculateTotal = () => {
     return items.reduce((sum, item) => sum + item.total_price, 0);
-  };
-
-  const calculateDeposit = () => {
-    const total = calculateTotal();
-    return (total * depositPercentage) / 100;
   };
 
   const handleProductClick = (product: Product) => {
@@ -250,7 +244,6 @@ export function NewOrder() {
       setError(null);
 
       const totalAmount = calculateTotal();
-      const depositAmount = isPreorder ? calculateDeposit() : 0;
 
       const { data: order, error: orderError } = await supabase
         .from('orders')
@@ -261,8 +254,9 @@ export function NewOrder() {
           is_preorder: isPreorder,
           delivery_date: isPreorder ? deliveryDate : null,
           total_amount: totalAmount,
-          deposit_amount: depositAmount,
-          remaining_amount: depositAmount > 0 ? totalAmount - depositAmount : 0,
+          // No calculamos la seña, esto lo hará el cajero
+          deposit_amount: 0,
+          remaining_amount: totalAmount, // El monto pendiente inicialmente es el total
           seller_id: user.id,
           status: 'pending',
           order_type: isPreorder ? 'pre_order' : 'regular',
@@ -518,6 +512,11 @@ export function NewOrder() {
                   <div className="text-lg font-medium">
                     Total: ${calculateTotal().toFixed(2)}
                   </div>
+                  {isPreorder && (
+                    <div className="text-sm text-gray-500">
+                      El cajero establecerá el monto de la seña
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-3 gap-2">
