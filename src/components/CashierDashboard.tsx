@@ -10,7 +10,9 @@ import {
   Percent,
   Receipt,
   Loader2,
-  Save
+  Save,
+  PlusCircle,
+  MinusCircle
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { OrderDetails } from './OrderDetails';
@@ -204,60 +206,58 @@ function PaymentMenu({ order, onProcess, onClose }: PaymentMenuProps) {
           </div>
         )}
 
-        <div className="p-4 space-y-3">
+        <div className="p-4 space-y-4">
           <p className="text-sm font-medium text-gray-700 mb-2">Método de Pago</p>
           
-          <label className={`flex items-center justify-between w-full px-4 py-3 text-sm border rounded-md cursor-pointer ${selectedPaymentMethod === 'cash' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
-            <div className="flex items-center">
+          <div className="grid grid-cols-3 gap-2">
+            <label className={`flex flex-col items-center justify-center p-3 border rounded-md cursor-pointer ${selectedPaymentMethod === 'cash' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
               <input 
                 type="radio" 
                 name="paymentMethod" 
                 value="cash" 
                 checked={selectedPaymentMethod === 'cash'} 
                 onChange={() => setSelectedPaymentMethod('cash')}
-                className="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500"
+                className="sr-only"
               />
-              <Banknotes className="h-4 w-4 mr-2 text-gray-600" />
-              <span>Efectivo</span>
-            </div>
-            <span className="font-medium">${finalAmount.toFixed(2)}</span>
-          </label>
+              <Banknotes className="h-5 w-5 text-gray-600 mb-1" />
+              <span className="text-sm">Efectivo</span>
+            </label>
 
-          <label className={`flex items-center justify-between w-full px-4 py-3 text-sm border rounded-md cursor-pointer ${selectedPaymentMethod === 'credit' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
-            <div className="flex items-center">
+            <label className={`flex flex-col items-center justify-center p-3 border rounded-md cursor-pointer ${selectedPaymentMethod === 'credit' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
               <input 
                 type="radio" 
                 name="paymentMethod" 
                 value="credit" 
                 checked={selectedPaymentMethod === 'credit'} 
                 onChange={() => setSelectedPaymentMethod('credit')}
-                className="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500"
+                className="sr-only"
               />
-              <CreditCard className="h-4 w-4 mr-2 text-gray-600" />
-              <span>Tarjeta</span>
-            </div>
-            <span className="font-medium">${finalAmount.toFixed(2)}</span>
-          </label>
+              <CreditCard className="h-5 w-5 text-gray-600 mb-1" />
+              <span className="text-sm">Tarjeta</span>
+            </label>
 
-          <label className={`flex items-center justify-between w-full px-4 py-3 text-sm border rounded-md cursor-pointer ${selectedPaymentMethod === 'transfer' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
-            <div className="flex items-center">
+            <label className={`flex flex-col items-center justify-center p-3 border rounded-md cursor-pointer ${selectedPaymentMethod === 'transfer' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
               <input 
                 type="radio" 
                 name="paymentMethod" 
                 value="transfer" 
                 checked={selectedPaymentMethod === 'transfer'} 
                 onChange={() => setSelectedPaymentMethod('transfer')}
-                className="mr-2 h-4 w-4 text-indigo-600 focus:ring-indigo-500"
+                className="sr-only"
               />
-              <ArrowRight className="h-4 w-4 mr-2 text-gray-600" />
-              <span>Transferencia</span>
-            </div>
-            <span className="font-medium">${finalAmount.toFixed(2)}</span>
-          </label>
+              <ArrowRight className="h-5 w-5 text-gray-600 mb-1" />
+              <span className="text-sm">Transferencia</span>
+            </label>
+          </div>
+
+          <div className="mt-4 p-4 bg-gray-50 rounded-md text-center">
+            <p className="text-sm text-gray-500">Total a pagar</p>
+            <p className="text-xl font-bold text-gray-900">${finalAmount.toFixed(2)}</p>
+          </div>
 
           <button
             onClick={() => onProcess(selectedPaymentMethod, discountPercent)}
-            className="mt-4 w-full flex justify-center items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            className="w-full flex justify-center items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
           >
             <Receipt className="h-4 w-4 mr-2" />
             Procesar Pago
@@ -307,7 +307,7 @@ export function CashierDashboard() {
         .from('orders')
         .select('*')
         .eq('status', 'pending')
-        .order('delivery_date', { ascending: true }) // Removido nullsLast que no es compatible
+        .order('delivery_date', { ascending: true })
         .order('created_at', { ascending: true });
 
       if (error) throw error;
@@ -514,6 +514,17 @@ export function CashierDashboard() {
     }
   }
 
+  // Calculate total sales and balance
+  const calculateTotalSales = () => {
+    if (!activeRegister) return 0;
+    return activeRegister.cash_sales + activeRegister.card_sales + activeRegister.transfer_sales;
+  };
+
+  const calculateTotalInRegister = () => {
+    if (!activeRegister) return 0;
+    return activeRegister.opening_amount + activeRegister.cash_sales - activeRegister.expenses_total;
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -590,7 +601,7 @@ export function CashierDashboard() {
             </div>
           )}
           <div className="mb-6 space-y-2">
-            <p className="text-sm text-gray-600">Resumen de Caja:</p>
+            <p className="text-sm text-gray-600 font-medium">Resumen de Caja:</p>
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div>Monto Inicial:</div>
               <div className="text-right">${activeRegister.opening_amount.toFixed(2)}</div>
@@ -604,9 +615,9 @@ export function CashierDashboard() {
               <div className="text-right">${activeRegister.deposits_received.toFixed(2)}</div>
               <div>Egresos:</div>
               <div className="text-right text-red-600">-${activeRegister.expenses_total.toFixed(2)}</div>
-              <div className="font-medium">Total Esperado:</div>
-              <div className="text-right font-medium">
-                ${(activeRegister.opening_amount + activeRegister.cash_sales - activeRegister.expenses_total).toFixed(2)}
+              <div className="font-medium pt-2 border-t mt-2">Total Esperado:</div>
+              <div className="text-right font-medium pt-2 border-t mt-2">
+                ${calculateTotalInRegister().toFixed(2)}
               </div>
             </div>
           </div>
@@ -689,6 +700,7 @@ export function CashierDashboard() {
               onClick={() => setShowExpenseForm(true)}
               className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
             >
+              <MinusCircle className="w-4 h-4 mr-1" />
               Registrar Egreso
             </button>
             <button
@@ -700,6 +712,41 @@ export function CashierDashboard() {
             </button>
           </div>
         </div>
+        
+        {/* Primera fila: valores clave */}
+        <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <div className="text-sm text-blue-700">Monto Inicial</div>
+            <div className="mt-1 flex items-center">
+              <PlusCircle className="w-5 h-5 text-blue-600 mr-1" />
+              <span className="text-xl font-semibold">
+                ${activeRegister.opening_amount.toFixed(2)}
+              </span>
+            </div>
+          </div>
+          
+          <div className="bg-red-50 p-4 rounded-lg">
+            <div className="text-sm text-red-700">Egresos</div>
+            <div className="mt-1 flex items-center">
+              <MinusCircle className="w-5 h-5 text-red-600 mr-1" />
+              <span className="text-xl font-semibold">
+                ${activeRegister.expenses_total.toFixed(2)}
+              </span>
+            </div>
+          </div>
+          
+          <div className="bg-green-50 p-4 rounded-lg">
+            <div className="text-sm text-green-700">Total Recaudado</div>
+            <div className="mt-1 flex items-center">
+              <DollarSign className="w-5 h-5 text-green-600 mr-1" />
+              <span className="text-xl font-semibold">
+                ${calculateTotalSales().toFixed(2)}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        {/* Segunda fila: desglose de ventas */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-gray-50 p-4 rounded-lg">
             <div className="text-sm text-gray-500">Ventas en Efectivo</div>
@@ -736,6 +783,19 @@ export function CashierDashboard() {
                 ${activeRegister.deposits_received.toFixed(2)}
               </span>
             </div>
+          </div>
+        </div>
+        
+        {/* Tercera fila: balance actual en caja */}
+        <div className="mt-4 bg-indigo-50 p-4 rounded-lg">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center">
+              <Banknotes className="w-5 h-5 text-indigo-600 mr-2" />
+              <span className="text-sm font-medium text-indigo-700">Balance Actual en Caja (Efectivo)</span>
+            </div>
+            <span className="text-xl font-bold text-indigo-700">
+              ${calculateTotalInRegister().toFixed(2)}
+            </span>
           </div>
         </div>
       </div>
@@ -825,7 +885,7 @@ export function CashierDashboard() {
         <OrderDetails
           orderId={selectedOrderId}
           onClose={() => setSelectedOrderId(null)}
-          userRole="cashier" // Añadido el valor requerido para la prop userRole
+          userRole="cashier"
         />
       )}
 
@@ -833,7 +893,7 @@ export function CashierDashboard() {
         <CashRegisterReport
           register={{
             ...closedRegister,
-            closing_amount: closedRegister.closing_amount || 0  // Aseguramos que closing_amount sea number, no null
+            closing_amount: closedRegister.closing_amount || 0
           }}
           onClose={() => {
             setShowReport(false);

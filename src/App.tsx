@@ -5,6 +5,7 @@ import { OrderList } from './components/OrderList';
 import { NewOrder } from './components/NewOrder';
 import { CashierDashboard } from './components/CashierDashboard';
 import { ProductManagement } from './components/ProductManagement';
+import { CashRegisterHistory } from './components/CashRegisterHistory';
 import { Auth } from './components/Auth';
 import { useAuth } from './hooks/useAuth';
 
@@ -32,6 +33,7 @@ function App() {
           <Route path="new-order" element={<NewOrder />} />
           <Route path="products" element={<ProductManagement />} />
           <Route path="cashier" element={<CashierDashboard />} />
+          <Route path="register-history" element={<CashRegisterHistory />} />
         </Route>
       </Routes>
     </Router>

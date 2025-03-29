@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { CircleDollarSign, PlusCircle, LogOut, Store, Package } from 'lucide-react';
+import { CircleDollarSign, PlusCircle, LogOut, Store, Package, History } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 
@@ -39,8 +39,8 @@ export function Layout() {
         navigate('/cashier');
       }
       
-      // Los cajeros no deberían acceder a products
-      if (data.role === 'cashier' && location.pathname === '/products') {
+      // Los cajeros no deberían acceder a products ni historial
+      if (data.role === 'cashier' && (location.pathname === '/products' || location.pathname === '/register-history')) {
         navigate('/cashier');
       }
 
@@ -56,13 +56,13 @@ export function Layout() {
 
       // Redirect sellers to new-order if they try to access restricted pages
       if (data.role === 'seller' && 
-          (location.pathname === '/products' || location.pathname === '/cashier')) {
+          (location.pathname === '/products' || location.pathname === '/cashier' || location.pathname === '/register-history')) {
         navigate('/new-order');
       }
       
-      // Redirect managers to products if they try to access restricted pages
+      // Redirect managers to products if they try to access restricted pages for sellers or cashiers
       if (data.role === 'manager' && 
-          (location.pathname === '/orders' || location.pathname === '/new-order' || location.pathname === '/cashier')) {
+          (location.pathname === '/new-order' || location.pathname === '/cashier')) {
         navigate('/products');
       }
       
@@ -151,17 +151,30 @@ export function Layout() {
                 
                 {/* Acceso a Productos para administradores */}
                 {profile?.role === 'manager' && (
-                  <Link
-                    to="/products"
-                    className={`px-3 py-2 rounded-md text-sm font-medium ${
-                      location.pathname === '/products'
-                        ? 'bg-indigo-100 text-indigo-700'
-                        : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                  >
-                    <Package className="h-5 w-5 inline-block mr-1" />
-                    Productos
-                  </Link>
+                  <>
+                    <Link
+                      to="/products"
+                      className={`px-3 py-2 rounded-md text-sm font-medium ${
+                        location.pathname === '/products'
+                          ? 'bg-indigo-100 text-indigo-700'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      <Package className="h-5 w-5 inline-block mr-1" />
+                      Productos
+                    </Link>
+                    <Link
+                      to="/register-history"
+                      className={`px-3 py-2 rounded-md text-sm font-medium ${
+                        location.pathname === '/register-history'
+                          ? 'bg-indigo-100 text-indigo-700'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      <History className="h-5 w-5 inline-block mr-1" />
+                      Historial de Cajas
+                    </Link>
+                  </>
                 )}
               </div>
             </div>
