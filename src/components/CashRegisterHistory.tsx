@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Calendar, ChevronDown, ChevronUp, Search, Download, Printer, Eye } from 'lucide-react';
-import { CashRegisterReport } from './CashRegisterReport';
 import { EnhancedCashRegisterReport } from './EnhancedCashRegisterReport';
 
 type CashRegister = {
@@ -126,6 +125,11 @@ export function CashRegisterHistory() {
 
   const formatDateTime = (dateString: string) => {
     return new Date(dateString).toLocaleString();
+  };
+
+  // Calcular el total recaudado en todos los métodos de pago
+  const calculateTotalRevenue = () => {
+    return calculateTotal('cash_sales') + calculateTotal('card_sales') + calculateTotal('transfer_sales');
   };
 
   const handleExportCSV = () => {
@@ -261,7 +265,7 @@ export function CashRegisterHistory() {
 
         <div className="bg-indigo-50 p-4 rounded-lg">
           <h3 className="font-medium text-indigo-700 mb-2">Resumen del Período</h3>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
             <div>
               <div className="text-sm text-gray-500">Ventas en Efectivo</div>
               <div className="text-lg font-medium">${calculateTotal('cash_sales').toFixed(2)}</div>
@@ -273,7 +277,7 @@ export function CashRegisterHistory() {
             <div>
               <div className="text-sm text-gray-500">Ventas por Transferencia</div>
               <div className="text-lg font-medium">${calculateTotal('transfer_sales').toFixed(2)}</div>
-            </div>
+            </div>           
             <div>
               <div className="text-sm text-gray-500">Señas Recibidas</div>
               <div className="text-lg font-medium">${calculateTotal('deposits_received').toFixed(2)}</div>
@@ -281,6 +285,10 @@ export function CashRegisterHistory() {
             <div>
               <div className="text-sm text-gray-500">Gastos Totales</div>
               <div className="text-lg font-medium text-red-600">-${calculateTotal('expenses_total').toFixed(2)}</div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Total Recaudado</div>
+              <div className="text-lg font-medium text-indigo-700">${calculateTotalRevenue().toFixed(2)}</div>
             </div>
           </div>
         </div>
@@ -441,17 +449,17 @@ export function CashRegisterHistory() {
       </div>
 
       {showReport && selectedRegister && (
-  <EnhancedCashRegisterReport
-    register={{
-      ...selectedRegister,
-      closing_amount: selectedRegister.closing_amount
-    }}
-    onClose={() => {
-      setShowReport(false);
-      setSelectedRegister(null);
-    }}
-  />
-)}
+        <EnhancedCashRegisterReport
+          register={{
+            ...selectedRegister,
+            closing_amount: selectedRegister.closing_amount
+          }}
+          onClose={() => {
+            setShowReport(false);
+            setSelectedRegister(null);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Printer, Download } from 'lucide-react';
+import { Printer, Download, Check, X, AlertTriangle } from 'lucide-react';
 
 type CashRegisterReportProps = {
   register: {
@@ -10,6 +10,7 @@ type CashRegisterReportProps = {
     card_sales: number;
     transfer_sales: number;
     deposits_received: number;
+    expenses_total: number;
     started_at: string;
     closed_at: string | null;
   };
@@ -17,9 +18,16 @@ type CashRegisterReportProps = {
 };
 
 export function CashRegisterReport({ register, onClose }: CashRegisterReportProps) {
-  const expectedCash = register.opening_amount + register.cash_sales;
+  const expectedCash = register.opening_amount + register.cash_sales - register.expenses_total;
   const difference = register.closing_amount - expectedCash;
   const totalSales = register.cash_sales + register.card_sales + register.transfer_sales;
+  
+  // Determinar el color del estado de diferencia
+  const getDifferenceStatusColor = () => {
+    if (difference === 0) return "text-green-600 bg-green-100";
+    if (difference > 0) return "text-blue-600 bg-blue-100";
+    return "text-red-600 bg-red-100";
+  };
 
   const handlePrint = () => {
     window.print();
@@ -41,6 +49,7 @@ Ventas en Efectivo: $${register.cash_sales.toFixed(2)}
 Ventas con Tarjeta: $${register.card_sales.toFixed(2)}
 Ventas por Transferencia: $${register.transfer_sales.toFixed(2)}
 Señas Recibidas: $${register.deposits_received.toFixed(2)}
+Egresos: $${register.expenses_total.toFixed(2)}
 
 Total de Ventas: $${totalSales.toFixed(2)}
 
@@ -104,6 +113,8 @@ ${difference === 0 ? 'El cierre coincide con lo esperado' :
                 <div className="text-right">${register.transfer_sales.toFixed(2)}</div>
                 <div className="text-gray-500">Señas Recibidas:</div>
                 <div className="text-right">${register.deposits_received.toFixed(2)}</div>
+                <div className="text-gray-500">Egresos:</div>
+                <div className="text-right text-red-600">-${register.expenses_total.toFixed(2)}</div>
                 <div className="font-medium text-gray-900 pt-2 border-t">Total de Ventas:</div>
                 <div className="text-right font-medium text-gray-900 pt-2 border-t">
                   ${totalSales.toFixed(2)}
@@ -121,19 +132,30 @@ ${difference === 0 ? 'El cierre coincide con lo esperado' :
                 <div className="font-medium text-gray-900 pt-2 border-t">Diferencia:</div>
                 <div className={`text-right font-medium pt-2 border-t ${
                   difference === 0 ? 'text-gray-900' :
-                  difference > 0 ? 'text-green-600' : 'text-red-600'
+                  difference > 0 ? 'text-blue-600' : 'text-red-600'
                 }`}>
                   ${difference.toFixed(2)}
                 </div>
               </div>
             </div>
 
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <h3 className="text-sm font-medium text-gray-900 mb-2">Observaciones</h3>
-              <p className="text-sm text-gray-600">
-                {difference === 0 ? 'El cierre coincide con lo esperado' :
-                 difference > 0 ? `Sobrante de $${difference.toFixed(2)}` :
-                 `Faltante de $${Math.abs(difference).toFixed(2)}`}
+            <div className={`p-4 rounded-lg ${getDifferenceStatusColor()}`}>
+              <div className="flex items-center">
+                {difference === 0 ? (
+                  <Check className="h-5 w-5 mr-2" />
+                ) : difference > 0 ? (
+                  <AlertTriangle className="h-5 w-5 mr-2" />
+                ) : (
+                  <X className="h-5 w-5 mr-2" />
+                )}
+                <h3 className="text-sm font-medium">Observaciones</h3>
+              </div>
+              <p className="text-sm mt-2">
+                {difference === 0 
+                  ? 'El cierre coincide con lo esperado' 
+                  : difference > 0 
+                    ? `Sobrante de $${difference.toFixed(2)} en caja` 
+                    : `Faltante de $${Math.abs(difference).toFixed(2)} en caja`}
               </p>
             </div>
           </div>
