@@ -101,11 +101,6 @@ function PaymentMenu({ order, onProcess, onClose }: PaymentMenuProps) {
         throw new Error('Cupón no encontrado o inactivo');
       }
       
-      // Check if the coupon can be applied to this order type
-      if (order.is_preorder && !data.applies_to_preorders) {
-        throw new Error('Este cupón no es válido para pedidos anticipados');
-      }
-      
       // Check if the coupon has reached its usage limit
       if (data.usage_limit > 0) {
         const { count, error: usageError } = await supabase
@@ -229,8 +224,8 @@ function PaymentMenu({ order, onProcess, onClose }: PaymentMenuProps) {
           </div>
         </div>
 
-        {/* Only show coupon section for regular orders or when paying the remaining balance */}
-        {(!order.is_preorder || order.status !== 'pending') && (
+        {/* Show coupon section for ALL orders when paid with cash */}
+        {selectedPaymentMethod === 'cash' && (
           <div className="p-4 border-b border-gray-200">
             <div className="space-y-4">
               <div>
@@ -535,12 +530,16 @@ export function CashierDashboard() {
           : order.remaining_amount
         : order.total_amount;
       
-      // Calculate discount amount if any
+      // Apply discount ONLY if payment method is cash
       let discountAmount = 0;
-      if (discountPercent > 0) {
+      if (discountPercent > 0 && paymentMethod === 'cash') {
         discountAmount = (baseAmount * discountPercent) / 100;
         baseAmount = baseAmount - discountAmount;
-      }
+      } else if (discountPercent > 0 && paymentMethod !== 'cash') {
+        // Si hay un porcentaje de descuento pero el método no es efectivo, ignorar el descuento
+        console.log('Descuento ignorado: método de pago no es efectivo');
+        discountPercent = 0; // Reset discount percent since it won't be applied
+      }     
   
       // Si es un pedido anticipado y estamos cobrando la seña con un monto personalizado,
       // necesitamos actualizar el registro de la orden con los nuevos montos
@@ -572,29 +571,29 @@ export function CashierDashboard() {
   
       if (paymentError) throw paymentError;
   
-      // If there's a discount, create coupon usage record
-      if (discountPercent > 0) {
-        // Intentamos encontrar el cupón que se aplicó
-        const { data: coupons, error: couponsError } = await supabase
-          .from('coupons')
-          .select('id')
-          .eq('discount_percentage', discountPercent)
-          .limit(1);
-          
-        if (!couponsError && coupons && coupons.length > 0) {
-          // Registramos el uso del cupón
-          const { error: usageError } = await supabase
-            .from('coupon_usages')
-            .insert({
-              order_id: order.id,
-              payment_id: payment.id,
-              coupon_id: coupons[0].id,
-              discount_amount: discountAmount,
-            });
-  
-          if (usageError) console.error('Error registrando uso de cupón:', usageError);
-        }
-      }
+      // If there's a discount, create coupon usage record - SOLO PARA PAGOS EN EFECTIVO
+if (discountPercent > 0 && paymentMethod === 'cash') {
+  // Intentamos encontrar el cupón que se aplicó
+  const { data: coupons, error: couponsError } = await supabase
+    .from('coupons')
+    .select('id')
+    .eq('discount_percentage', discountPercent)
+    .limit(1);
+    
+  if (!couponsError && coupons && coupons.length > 0) {
+    // Registramos el uso del cupón
+    const { error: usageError } = await supabase
+      .from('coupon_usages')
+      .insert({
+        order_id: order.id,
+        payment_id: payment.id,
+        coupon_id: coupons[0].id,
+        discount_amount: discountAmount,
+      });
+
+    if (usageError) console.error('Error registrando uso de cupón:', usageError);
+  }
+}
   
       // Update order status and payment info
       const newStatus = order.is_preorder ? 
