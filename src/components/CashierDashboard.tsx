@@ -114,9 +114,9 @@ function PaymentMenu({ order, onProcess, onClose }: PaymentMenuProps) {
       }
       
       // Check if the coupon can be applied to this order type
-      if (order.is_preorder && !data.applies_to_preorders) {
-        throw new Error('Este cupón no es válido para pedidos anticipados');
-      }
+      //if (order.is_preorder && !data.applies_to_preorders) {
+      //  throw new Error('Este cupón no es válido para pedidos anticipados');
+      //}
       
       // Check if the coupon has reached its usage limit
       if (data.usage_limit > 0) {
@@ -547,228 +547,197 @@ export function CashierDashboard() {
   }
 
   async function processPayment(order: Order, paymentMethod: PaymentMethodType, discountPercent: number = 0, customDepositAmount?: number) {
-    if (!user || !activeRegister) return;
-    setError(null);
-  
-    try {
-      // Determine payment amount based on order status and custom deposit if provided
-      let baseAmount = order.is_preorder ? 
-        order.status === 'pending' ? 
-          (customDepositAmount !== undefined ? customDepositAmount : order.deposit_amount) 
-          : order.remaining_amount
-        : order.total_amount;
-      
-      // Aplicar descuento SOLO si el método de pago es efectivo
-      let discountAmount = 0;
-      if (discountPercent > 0 && paymentMethod === 'cash') {
-        discountAmount = (baseAmount * discountPercent) / 100;
-        baseAmount = baseAmount - discountAmount;
-      } else if (discountPercent > 0 && paymentMethod !== 'cash') {
-        // Si hay un porcentaje de descuento pero el método no es efectivo, ignorar el descuento
-        console.log('Descuento ignorado: método de pago no es efectivo');
-        discountPercent = 0; // Reset discount percent since it won't be applied
-      }
-      
-      // Si hay un descuento aplicado, necesitamos actualizar el monto total de la orden
-      if (discountPercent > 0 && paymentMethod === 'cash') {
-        // Para órdenes regulares o al pagar el saldo final de un pedido anticipado
-        if (!order.is_preorder || order.status === 'processing') {
-          // Aplicamos el descuento directamente al total
-          const totalDiscount = order.total_amount * discountPercent / 100;
-          const totalAmountWithDiscount = order.total_amount - totalDiscount;
-          
-          // Actualizamos la orden con el nuevo total
-          const { error: updateTotalError } = await supabase
-            .from('orders')
-            .update({
-              total_amount: totalAmountWithDiscount,
-              remaining_amount: order.is_preorder ? baseAmount : 0 // Si es pago final, el monto restante es 0
-            })
-            .eq('id', order.id);
-            
-          if (updateTotalError) throw updateTotalError;
-          
-          // Actualizamos el objeto orden local
-          order.total_amount = totalAmountWithDiscount;
-          order.remaining_amount = order.is_preorder ? baseAmount : 0;
-        } 
-        // Si estamos cobrando una seña de un pedido anticipado
-        else if (order.is_preorder && order.status === 'pending') {
-          // El descuento se aplica al monto de la seña, pero afecta el total
-          const totalDiscount = baseAmount * discountPercent / 100; // Descuento aplicado a la seña
-          
-          // Calcular nuevo monto total y restante
-          const totalAmountWithDiscount = order.total_amount - totalDiscount;
-          
-          // IMPORTANTE: Asegurarnos que depositAmount sea el monto después del descuento
-          const depositAmount = baseAmount - discountAmount;
-          const remainingAmount = totalAmountWithDiscount - depositAmount;
-          
-          // Actualizar la orden con los nuevos montos
-          const { error: updateOrderError } = await supabase
-            .from('orders')
-            .update({
-              total_amount: totalAmountWithDiscount,
-              deposit_amount: depositAmount,
-              remaining_amount: remainingAmount
-            })
-            .eq('id', order.id);
-            
-          if (updateOrderError) throw updateOrderError;
-          
-          // Actualizar el objeto orden local
-          order.total_amount = totalAmountWithDiscount;
-          order.deposit_amount = depositAmount;
-          order.remaining_amount = remainingAmount;
-        }
-      }
+  if (!user || !activeRegister) return;
+  setError(null);
+
+  try {
+    // 1. Calcular el monto a pagar inicial (sin descuento aún)
+    let initialAmount = order.is_preorder ? 
+      order.status === 'pending' ? 
+        (customDepositAmount !== undefined ? customDepositAmount : order.deposit_amount) 
+        : order.remaining_amount
+      : order.total_amount;
     
-      // Si es un pedido anticipado con seña personalizada (sin descuento), actualizamos los montos
-      else if (order.is_preorder && order.status === 'pending' && customDepositAmount !== undefined && discountPercent === 0) {
-        const newRemaining = order.total_amount - customDepositAmount;
-        
-        const { error: updateOrderError } = await supabase
-          .from('orders')
-          .update({
-            deposit_amount: customDepositAmount,
-            remaining_amount: newRemaining
-          })
-          .eq('id', order.id);
-          
-        if (updateOrderError) throw updateOrderError;
-        
-        // Actualizar el objeto orden local
-        order.deposit_amount = customDepositAmount;
-        order.remaining_amount = newRemaining;
-      }
+    // 2. Aplicar descuento si es pago en efectivo
+    let discountAmount = 0;
+    let paymentAmount = initialAmount;
+    
+    if (discountPercent > 0 && paymentMethod === 'cash') {
+      discountAmount = (initialAmount * discountPercent) / 100;
+      paymentAmount = initialAmount - discountAmount;
+    }
+    
+    // 3. Calcular cómo afecta el descuento al total del pedido
+    let updatedTotalAmount = order.total_amount;
+    let updatedDepositAmount = order.deposit_amount;
+    let updatedRemainingAmount = order.remaining_amount;
+    
+    if (discountPercent > 0 && paymentMethod === 'cash') {
+      // Calcular cuánto se reduce el total del pedido
+      const totalDiscount = order.total_amount * discountPercent / 100;
+      updatedTotalAmount = order.total_amount - totalDiscount;
       
-      // Create payment record - Incluimos información del descuento
-      const paymentData: Record<string, any> = {
-        order_id: order.id,
-        amount: baseAmount,
-        payment_method: paymentMethod,
-        is_deposit: order.is_preorder && order.status === 'pending'
-      };
-      
-      // Agregar información de descuento si corresponde
-      if (discountPercent > 0 && paymentMethod === 'cash') {
-        paymentData.discount_percentage = discountPercent;
-        paymentData.discount_amount = discountAmount;
-      }
-      
-      const { data: payment, error: paymentError } = await supabase
-        .from('payments')
-        .insert(paymentData)
-        .select()
-        .single();
-      
-      if (paymentError) throw paymentError;
-      
-      // If there's a discount, create coupon usage record - SOLO PARA PAGOS EN EFECTIVO
-      if (discountPercent > 0 && paymentMethod === 'cash') {
-        // Intentamos encontrar el cupón que se aplicó
-        const { data: coupons, error: couponsError } = await supabase
-          .from('coupons')
-          .select('id')
-          .eq('discount_percentage', discountPercent)
-          .limit(1);
-          
-        if (!couponsError && coupons && coupons.length > 0) {
-          // Registramos el uso del cupón
-          const { error: usageError } = await supabase
-            .from('coupon_usages')
-            .insert({
-              order_id: order.id,
-              payment_id: payment.id,
-              coupon_id: coupons[0].id,
-              discount_amount: discountAmount,
-            });
-  
-          if (usageError) console.error('Error registrando uso de cupón:', usageError);
-        }
-      }
-  
-      // Update order status and payment info
-      const newStatus = order.is_preorder ? 
-        order.status === 'pending' ? 'processing' : 'paid' : 'paid';
-        
-      // Prepare update object for the order
-      const orderUpdateData: Record<string, any> = {
-        status: newStatus,
-        cashier_id: user.id,
-        payment_method: paymentMethod,
-      };
-      
-      // Add payment date logic based on order status
-      const currentDate = new Date().toISOString();
-      
+      // Actualizar los valores según el tipo de pago
       if (order.is_preorder) {
         if (order.status === 'pending') {
-          // Es el primer pago (seña)
-          orderUpdateData.first_payment_date = currentDate;
-          orderUpdateData.last_payment_date = currentDate;
-        } else if (order.status === 'processing') {
-          // Es el pago final
-          orderUpdateData.last_payment_date = currentDate;
+          // Estamos pagando una seña con descuento
+          updatedDepositAmount = paymentAmount; // La seña es el monto pagado con descuento
+          updatedRemainingAmount = updatedTotalAmount - updatedDepositAmount; // El restante es el total con descuento menos la seña
+        } else {
+          // Estamos pagando el saldo restante con descuento
+          updatedRemainingAmount = paymentAmount; // El restante es el monto pagado con descuento
         }
       } else {
-        // Para órdenes regulares, ambas fechas son iguales
-        orderUpdateData.first_payment_date = currentDate;
-        orderUpdateData.last_payment_date = currentDate;
+        // Es un pago regular (no preorden), no hay que calcular montos de seña ni restante
+        updatedRemainingAmount = 0;
       }
-      
-      const { error: orderError } = await supabase
-        .from('orders')
-        .update(orderUpdateData)
-        .eq('id', order.id);
-  
-      if (orderError) throw orderError;
-  
-      // Update cash register totals based on payment method
-      let updateObject: Record<string, any> = {};
-      
-      if (paymentMethod === 'cash') {
-        updateObject.cash_sales = activeRegister.cash_sales + baseAmount;
-      } else if (paymentMethod === 'credit') {
-        updateObject.card_sales = activeRegister.card_sales + baseAmount;
-      } else if (paymentMethod === 'transfer') {
-        updateObject.transfer_sales = activeRegister.transfer_sales + baseAmount;
-      }
-      
-      // If this is a deposit payment, track it separately
-      if (order.is_preorder && order.status === 'pending') {
-        updateObject.deposits_received = activeRegister.deposits_received + baseAmount;
-      }
-      
-      const { error: registerError } = await supabase
-        .from('cash_registers')
-        .update(updateObject)
-        .eq('id', activeRegister.id);
+    } else if (customDepositAmount !== undefined && order.is_preorder && order.status === 'pending') {
+      // Caso sin descuento pero con una seña personalizada
+      updatedDepositAmount = customDepositAmount;
+      updatedRemainingAmount = updatedTotalAmount - updatedDepositAmount;
+    }
+    
+    // 4. Actualizar el pedido en la base de datos
+    const orderUpdateData: Record<string, any> = {
+      total_amount: updatedTotalAmount
+    };
+    
+    // Agregar campos específicos según el estado del pedido
+    if (order.is_preorder && order.status === 'pending') {
+      orderUpdateData.deposit_amount = updatedDepositAmount;
+      orderUpdateData.remaining_amount = updatedRemainingAmount;
+    } else if (order.is_preorder && order.status === 'processing') {
+      orderUpdateData.remaining_amount = 0; // Si es pago final, el restante es 0
+    }
+    
+    // 5. Guardar los cambios en la base de datos
+    const { error: updateOrderError } = await supabase
+      .from('orders')
+      .update(orderUpdateData)
+      .eq('id', order.id);
+    
+    if (updateOrderError) throw updateOrderError;
+    
+    // 6. Registrar el pago
+    const paymentData: Record<string, any> = {
+      order_id: order.id,
+      amount: paymentAmount, // Guardar el monto con descuento aplicado
+      payment_method: paymentMethod,
+      is_deposit: order.is_preorder && order.status === 'pending'
+    };
+    
+    // Agregar información de descuento si corresponde
+    if (discountPercent > 0 && paymentMethod === 'cash') {
+      paymentData.discount_percentage = discountPercent;
+      paymentData.discount_amount = discountAmount;
+    }
+    
+    const { data: payment, error: paymentError } = await supabase
+      .from('payments')
+      .insert(paymentData)
+      .select()
+      .single();
+    
+    if (paymentError) throw paymentError;
+    
+    // 7. Registrar uso de cupón si aplica
+    if (discountPercent > 0 && paymentMethod === 'cash') {
+      const { data: coupons, error: couponsError } = await supabase
+        .from('coupons')
+        .select('id')
+        .eq('discount_percentage', discountPercent)
+        .limit(1);
         
-      if (registerError) throw registerError;
-  
-      // Add to order queue if payment completes the order
-      if (newStatus === 'paid') {
-        const { error: queueError } = await supabase
-          .from('order_queue')
+      if (!couponsError && coupons && coupons.length > 0) {
+        const { error: usageError } = await supabase
+          .from('coupon_usages')
           .insert({
             order_id: order.id,
-            priority: order.is_preorder ? 1 : 0, // Pre-orders get higher priority
-            status: 'waiting'
+            payment_id: payment.id,
+            coupon_id: coupons[0].id,
+            discount_amount: discountAmount,
           });
-  
-        if (queueError) throw queueError;
+
+        if (usageError) console.error('Error registrando uso de cupón:', usageError);
       }
-  
-      setShowPaymentMenu(null);
-      
-      // Refresh data
-      await Promise.all([fetchOrders(), fetchActiveRegister()]);
-    } catch (error: any) {
-      console.error('Error processing payment:', error);
-      setError('Error al procesar el pago: ' + error.message);
     }
+
+    // 8. Actualizar estado del pedido
+    const newStatus = order.is_preorder ? 
+      order.status === 'pending' ? 'processing' : 'paid' : 'paid';
+      
+    const statusUpdateData: Record<string, any> = {
+      status: newStatus,
+      cashier_id: user.id,
+      payment_method: paymentMethod,
+    };
+    
+    // Registrar fechas de pago
+    const currentDate = new Date().toISOString();
+    if (order.is_preorder) {
+      if (order.status === 'pending') {
+        statusUpdateData.first_payment_date = currentDate;
+        statusUpdateData.last_payment_date = currentDate;
+      } else {
+        statusUpdateData.last_payment_date = currentDate;
+      }
+    } else {
+      statusUpdateData.first_payment_date = currentDate;
+      statusUpdateData.last_payment_date = currentDate;
+    }
+    
+    const { error: statusError } = await supabase
+      .from('orders')
+      .update(statusUpdateData)
+      .eq('id', order.id);
+
+    if (statusError) throw statusError;
+
+    // 9. Actualizar totales del registro de caja
+    let registerUpdateData: Record<string, any> = {};
+    
+    if (paymentMethod === 'cash') {
+      registerUpdateData.cash_sales = activeRegister.cash_sales + paymentAmount;
+    } else if (paymentMethod === 'credit') {
+      registerUpdateData.card_sales = activeRegister.card_sales + paymentAmount;
+    } else if (paymentMethod === 'transfer') {
+      registerUpdateData.transfer_sales = activeRegister.transfer_sales + paymentAmount;
+    }
+    
+    // Registrar seña si corresponde
+    if (order.is_preorder && order.status === 'pending') {
+      registerUpdateData.deposits_received = activeRegister.deposits_received + paymentAmount;
+    }
+    
+    const { error: registerError } = await supabase
+      .from('cash_registers')
+      .update(registerUpdateData)
+      .eq('id', activeRegister.id);
+      
+    if (registerError) throw registerError;
+
+    // 10. Agregar a la cola de órdenes si es pago final
+    if (newStatus === 'paid') {
+      const { error: queueError } = await supabase
+        .from('order_queue')
+        .insert({
+          order_id: order.id,
+          priority: order.is_preorder ? 1 : 0,
+          status: 'waiting'
+        });
+
+      if (queueError) throw queueError;
+    }
+
+    // 11. Finalizar proceso
+    setShowPaymentMenu(null);
+    await Promise.all([fetchOrders(), fetchActiveRegister()]);
+    
+  } catch (error: any) {
+    console.error('Error processing payment:', error);
+    setError('Error al procesar el pago: ' + error.message);
   }
+}
 
   // Calculate total sales and balance
   const calculateTotalSales = () => {
