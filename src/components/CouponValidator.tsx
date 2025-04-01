@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Loader2, Percent, AlertCircle } from 'lucide-react';
+import { Loader2, Percent, AlertCircle, Tag, X } from 'lucide-react';
 
 type PaymentMethodType = 'cash' | 'credit' | 'transfer';
 
@@ -115,12 +115,22 @@ export function CouponValidator({
     onDiscountApplied(0);
   };
 
+  // Manejador para la tecla Enter en el campo de texto
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault(); // Prevenir el comportamiento por defecto
+      if (couponCode.trim() && !couponLoading && !appliedCoupon) {
+        validateCoupon(couponCode);
+      }
+    }
+  };
+
   // Si el método de pago no es efectivo, mostrar un mensaje de advertencia
   if (selectedPaymentMethod !== 'cash') {
     return (
       <div className="space-y-3">
-        <div className="p-3 bg-amber-50 rounded-md flex items-start">
-          <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5 mr-2 flex-shrink-0" />
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start">
+          <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5 mr-3 flex-shrink-0" />
           <div>
             <p className="text-sm text-amber-700 font-medium">Cupones solo disponibles para pagos en efectivo</p>
             <p className="text-sm text-amber-600">Cambie el método de pago a efectivo para aplicar descuentos.</p>
@@ -132,51 +142,68 @@ export function CouponValidator({
 
   return (
     <div className="space-y-3">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+        <label className="block text-base font-medium text-gray-800 mb-3 flex items-center">
+          <Tag className="w-5 h-5 mr-2 text-indigo-600" />
           Cupón de Descuento
         </label>
-        <div className="flex space-x-2">
-          <input
-            type="text"
-            value={couponCode}
-            onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-            placeholder="Ingrese código"
-            className="flex-1 rounded-md border-gray-300 shadow-md focus:border-indigo-500 focus:ring-indigo-500 text-base"
-            disabled={!!appliedCoupon}
-          />
-          {!appliedCoupon ? (
+        
+        {appliedCoupon ? (
+          <div className="bg-green-50 border border-green-200 rounded-md p-3 flex justify-between items-center">
+            <div>
+              <span className="font-medium text-green-800">{appliedCoupon.code}</span>
+              <span className="ml-2 text-green-600">({appliedCoupon.discount_percentage}% descuento)</span>
+            </div>
             <button
-              type="button"
-              onClick={() => validateCoupon(couponCode)}
-              disabled={couponLoading || !couponCode.trim()}
-              className="px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-            >
-              {couponLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Validar'}
-            </button>
-          ) : (
-            <button
-              type="button"
               onClick={clearCoupon}
-              className="px-3 py-2 border border-red-300 rounded-md text-sm font-medium text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+              className="text-green-700 hover:text-green-800"
+              aria-label="Quitar cupón"
             >
-              Quitar
+              <X className="w-5 h-5" />
             </button>
-          )}
-        </div>
-        {couponError && (
-          <p className="mt-1 text-sm text-red-600">{couponError}</p>
+          </div>
+        ) : (
+          <>
+            <div className="flex space-x-2">
+              <input
+                type="text"
+                value={couponCode}
+                onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                onKeyDown={handleKeyDown}
+                placeholder="Ingrese código de descuento"
+                className="flex-1 rounded-md border-2 border-indigo-200 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-base h-12 px-4"
+              />
+              <button
+                type="button"
+                onClick={() => validateCoupon(couponCode)}
+                disabled={couponLoading || !couponCode.trim()}
+                className="px-5 py-2 rounded-md text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 flex items-center"
+              >
+                {couponLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Validar'}
+              </button>
+            </div>
+            
+            {couponError && (
+              <p className="mt-2 text-sm text-red-600 bg-red-50 p-3 rounded-md border border-red-100">
+                {couponError}
+              </p>
+            )}
+            
+            <p className="mt-2 text-xs text-gray-500">
+              Ingrese un código de cupón válido
+            </p>
+          </>
         )}
       </div>
 
       {appliedCoupon && (
-        <div className="text-sm bg-green-50 p-3 rounded-md">
+        <div className="text-sm bg-green-50 border border-green-200 p-3 rounded-md">
           <p className="text-green-700 font-medium flex items-center">
             <Percent className="h-4 w-4 mr-1" />
-            Cupón <span className="mx-1 font-bold">{appliedCoupon.code}</span> aplicado
+            Descuento del {appliedCoupon.discount_percentage}% aplicado
           </p>
-          <p className="text-green-600">
-            Descuento: {appliedCoupon.discount_percentage}%
+          <p className="text-green-600 mt-1">
+            Ahorro: ${((orderTotal * appliedCoupon.discount_percentage) / 100).toFixed(2)}
           </p>
         </div>
       )}

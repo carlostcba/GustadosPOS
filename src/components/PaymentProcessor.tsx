@@ -12,6 +12,7 @@ import {
 import { useAuth } from '../hooks/useAuth';
 import { CouponValidator } from './CouponValidator';
 import { DepositManager } from './DepositManager';
+import { PaymentConfirmationDialog } from './PaymentConfirmationDialog';
 
 type Order = {
   id: string;
@@ -41,6 +42,7 @@ export function PaymentProcessor({ order, registerId, onClose, onPaymentProcesse
   const [error, setError] = useState<string | null>(null);
   const [discountPercent, setDiscountPercent] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
   
   // Verificar que order exista antes de acceder a sus propiedades
   // Para pedidos anticipados con estado 'pending', permitimos cambiar el monto de la seña
@@ -74,14 +76,31 @@ export function PaymentProcessor({ order, registerId, onClose, onPaymentProcesse
   const discountAmount = (baseAmount * discountPercent) / 100;
   const finalAmount = baseAmount - discountAmount;
 
+  // Determinar el tipo de pago para mostrar en la confirmación
+  const getPaymentType = (): 'full' | 'deposit' | 'remaining' => {
+    if (!order) return 'full';
+    
+    if (order.is_preorder) {
+      return order.status === 'pending' ? 'deposit' : 'remaining';
+    }
+    
+    return 'full';
+  };
+
   const handleDiscountApplied = (percentage: number) => {
     setDiscountPercent(percentage);
+  };
+
+  const handlePaymentRequest = () => {
+    // Mostrar el diálogo de confirmación antes de procesar el pago
+    setShowConfirmation(true);
   };
 
   const processPayment = async () => {
     if (!user || !order) return;
     setError(null);
     setLoading(true);
+    setShowConfirmation(false); // Ocultar diálogo de confirmación
 
     // Log de depuración para verificar valores iniciales
     console.log("Iniciando proceso de pago con valores:", {
@@ -301,145 +320,160 @@ export function PaymentProcessor({ order, registerId, onClose, onPaymentProcesse
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex justify-between items-center mb-2">
-            <h3 className="text-lg font-medium">Cobrar Pedido</h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
-              <XCircle className="h-5 w-5" />
-            </button>
-          </div>
-          <div className="space-y-1">
-            <p className="text-sm text-gray-500">
-              Pedido #{order.order_number}
-            </p>
-            <p className="text-sm text-gray-500">
-              Cliente: {order.customer_name}
-            </p>
-            <p className="font-medium">
-              Total: ${order.total_amount.toFixed(2)}
-            </p>
-            {order.is_preorder && (
-              <>
-                {order.status === 'pending' ? (
-                  <div className="mt-3">
-                    <DepositManager 
-                      order={order} 
-                      onChange={(amount) => setDepositAmount(amount)} 
-                    />
-                  </div>
-                ) : (
-                  <>
-                    <p className="text-sm text-gray-500">
-                      Seña pagada: ${order.deposit_amount.toFixed(2)}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      Restante: ${order.remaining_amount.toFixed(2)}
-                    </p>
-                    <p className="text-sm font-medium text-green-700">
-                      Cobrando saldo restante
-                    </p>
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="p-4 border-b border-gray-200">
-          <p className="text-sm font-medium text-gray-700 mb-2">Método de Pago</p>
-          
-          <div className="grid grid-cols-3 gap-2">
-            <label className={`flex flex-col items-center justify-center p-3 border rounded-md cursor-pointer ${selectedPaymentMethod === 'cash' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
-              <input 
-                type="radio" 
-                name="paymentMethod" 
-                value="cash" 
-                checked={selectedPaymentMethod === 'cash'} 
-                onChange={() => setSelectedPaymentMethod('cash')}
-                className="sr-only"
-              />
-              <Banknote className="h-5 w-5 text-gray-600 mb-1" />
-              <span className="text-sm">Efectivo</span>
-            </label>
-
-            <label className={`flex flex-col items-center justify-center p-3 border rounded-md cursor-pointer ${selectedPaymentMethod === 'credit' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
-              <input 
-                type="radio" 
-                name="paymentMethod" 
-                value="credit" 
-                checked={selectedPaymentMethod === 'credit'} 
-                onChange={() => setSelectedPaymentMethod('credit')}
-                className="sr-only"
-              />
-              <CreditCard className="h-5 w-5 text-gray-600 mb-1" />
-              <span className="text-sm">Tarjeta</span>
-            </label>
-
-            <label className={`flex flex-col items-center justify-center p-3 border rounded-md cursor-pointer ${selectedPaymentMethod === 'transfer' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
-              <input 
-                type="radio" 
-                name="paymentMethod" 
-                value="transfer" 
-                checked={selectedPaymentMethod === 'transfer'} 
-                onChange={() => setSelectedPaymentMethod('transfer')}
-                className="sr-only"
-              />
-              <ArrowRight className="h-5 w-5 text-gray-600 mb-1" />
-              <span className="text-sm">Transferencia</span>
-            </label>
-          </div>
-        </div>
-
-        {/* Only show coupon section for regular orders or when paying the remaining balance */}
-        {(!order.is_preorder || order.status !== 'pending') && (
+    <>
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
           <div className="p-4 border-b border-gray-200">
-            <CouponValidator 
-              orderTotal={baseAmount}
-              isPreorder={order.is_preorder}
-              onDiscountApplied={handleDiscountApplied}
-              selectedPaymentMethod={selectedPaymentMethod}
-            />
-
-            {discountPercent > 0 && (
-              <div className="mt-3 text-sm text-gray-500 bg-green-50 p-3 rounded-md">
-                <p className="text-green-700 font-medium">Descuento aplicado: {discountPercent}%</p>
-                <p>Descuento: -${discountAmount.toFixed(2)}</p>
-                <p className="font-medium">Final: ${finalAmount.toFixed(2)}</p>
-              </div>
-            )}
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-lg font-medium">Cobrar Pedido</h3>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
+                <XCircle className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-gray-500">
+                Pedido #{order.order_number}
+              </p>
+              <p className="text-sm text-gray-500">
+                Cliente: {order.customer_name}
+              </p>
+              <p className="font-medium">
+                Total: ${order.total_amount.toFixed(2)}
+              </p>
+              {order.is_preorder && (
+                <>
+                  {order.status === 'pending' ? (
+                    <div className="mt-3">
+                      <DepositManager 
+                        order={order} 
+                        onChange={(amount) => setDepositAmount(amount)} 
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm text-gray-500">
+                        Seña pagada: ${order.deposit_amount.toFixed(2)}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        Restante: ${order.remaining_amount.toFixed(2)}
+                      </p>
+                      <p className="text-sm font-medium text-green-700">
+                        Cobrando saldo restante
+                      </p>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        )}
 
-        <div className="p-4 space-y-4">
-          <div className="mt-4 p-4 bg-gray-50 rounded-md text-center">
-            <p className="text-sm text-gray-500">Total a pagar</p>
-            <p className="text-xl font-bold text-gray-900">${finalAmount.toFixed(2)}</p>
+          <div className="p-4 border-b border-gray-200">
+            <p className="text-sm font-medium text-gray-700 mb-2">Método de Pago</p>
+            
+            <div className="grid grid-cols-3 gap-2">
+              <label className={`flex flex-col items-center justify-center p-3 border rounded-md cursor-pointer ${selectedPaymentMethod === 'cash' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                <input 
+                  type="radio" 
+                  name="paymentMethod" 
+                  value="cash" 
+                  checked={selectedPaymentMethod === 'cash'} 
+                  onChange={() => setSelectedPaymentMethod('cash')}
+                  className="sr-only"
+                />
+                <Banknote className="h-5 w-5 text-gray-600 mb-1" />
+                <span className="text-sm">Efectivo</span>
+              </label>
+
+              <label className={`flex flex-col items-center justify-center p-3 border rounded-md cursor-pointer ${selectedPaymentMethod === 'credit' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                <input 
+                  type="radio" 
+                  name="paymentMethod" 
+                  value="credit" 
+                  checked={selectedPaymentMethod === 'credit'} 
+                  onChange={() => setSelectedPaymentMethod('credit')}
+                  className="sr-only"
+                />
+                <CreditCard className="h-5 w-5 text-gray-600 mb-1" />
+                <span className="text-sm">Tarjeta</span>
+              </label>
+
+              <label className={`flex flex-col items-center justify-center p-3 border rounded-md cursor-pointer ${selectedPaymentMethod === 'transfer' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                <input 
+                  type="radio" 
+                  name="paymentMethod" 
+                  value="transfer" 
+                  checked={selectedPaymentMethod === 'transfer'} 
+                  onChange={() => setSelectedPaymentMethod('transfer')}
+                  className="sr-only"
+                />
+                <ArrowRight className="h-5 w-5 text-gray-600 mb-1" />
+                <span className="text-sm">Transferencia</span>
+              </label>
+            </div>
           </div>
 
-          {error && (
-            <div className="text-sm text-red-600 bg-red-50 rounded-md p-3">
-              {error}
+          {/* Only show coupon section for regular orders or when paying the remaining balance */}
+          {(!order.is_preorder || order.status !== 'pending') && (
+            <div className="p-4 border-b border-gray-200">
+              <CouponValidator 
+                orderTotal={baseAmount}
+                isPreorder={order.is_preorder}
+                onDiscountApplied={handleDiscountApplied}
+                selectedPaymentMethod={selectedPaymentMethod}
+              />
             </div>
           )}
 
-          <button
-            onClick={processPayment}
-            disabled={loading || (order.is_preorder && order.status === 'pending' && depositAmount <= 0)}
-            className="w-full flex justify-center items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <>
-                <Receipt className="h-4 w-4 mr-2" />
-                Procesar Pago
-              </>
+          <div className="p-4 space-y-4">
+            <div className="mt-4 p-4 bg-gray-50 rounded-md text-center">
+              <p className="text-sm text-gray-500">Total a pagar</p>
+              <p className="text-xl font-bold text-gray-900">${finalAmount.toFixed(2)}</p>
+              
+              {discountPercent > 0 && (
+                <div className="mt-2 text-sm text-green-600">
+                  (Incluye descuento del {discountPercent}%: -${discountAmount.toFixed(2)})
+                </div>
+              )}
+            </div>
+
+            {error && (
+              <div className="text-sm text-red-600 bg-red-50 rounded-md p-3">
+                {error}
+              </div>
             )}
-          </button>
+
+            <button
+              onClick={handlePaymentRequest}
+              disabled={loading || (order.is_preorder && order.status === 'pending' && depositAmount <= 0)}
+              className="w-full flex justify-center items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <>
+                  <Receipt className="h-4 w-4 mr-2" />
+                  Procesar Pago
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* Diálogo de confirmación */}
+      {showConfirmation && (
+        <PaymentConfirmationDialog
+          paymentMethod={selectedPaymentMethod}
+          finalAmount={finalAmount}
+          discountPercent={discountPercent}
+          discountAmount={discountAmount}
+          originalAmount={baseAmount}
+          isPreorder={order.is_preorder}
+          paymentType={getPaymentType()}
+          onConfirm={processPayment}
+          onCancel={() => setShowConfirmation(false)}
+        />
+      )}
+    </>
   );
 }

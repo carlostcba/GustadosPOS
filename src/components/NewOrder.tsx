@@ -2,7 +2,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
-import { Plus, Minus, Trash2, Search, Package, Filter, CreditCard, Banknote, ArrowRight } from 'lucide-react';
+import { 
+  Plus, 
+  Minus, 
+  Trash2, 
+  Search, 
+  Package, 
+  CreditCard, 
+  Banknote, 
+  ArrowRight, 
+  AlertCircle,
+  Clock
+} from 'lucide-react';
 import type { Product, Category } from '../lib/types';
 
 type OrderItem = {
@@ -76,6 +87,7 @@ export function NewOrder() {
       setCategories(categoriesResult.data || []);
     } catch (error: any) {
       console.error('Error loading data:', error);
+      setError(error.message || 'Error al cargar los datos');
     }
   }
 
@@ -238,6 +250,24 @@ export function NewOrder() {
       setError('Debe seleccionar un método de pago');
       return;
     }
+    if (!customerName.trim()) {
+      setError('El nombre del cliente es requerido');
+      return;
+    }
+    if (isPreorder) {
+      if (!customerEmail.trim()) {
+        setError('El email del cliente es requerido para pedidos anticipados');
+        return;
+      }
+      if (!customerPhone.trim()) {
+        setError('El teléfono del cliente es requerido para pedidos anticipados');
+        return;
+      }
+      if (!deliveryDate) {
+        setError('La fecha de entrega es requerida para pedidos anticipados');
+        return;
+      }
+    }
 
     try {
       setLoading(true);
@@ -248,15 +278,14 @@ export function NewOrder() {
       const { data: order, error: orderError } = await supabase
         .from('orders')
         .insert({
-          customer_name: customerName,
-          customer_email: isPreorder ? customerEmail : null,
-          customer_phone: isPreorder ? customerPhone : null,
+          customer_name: customerName.trim(),
+          customer_email: isPreorder ? customerEmail.trim() : null,
+          customer_phone: isPreorder ? customerPhone.trim() : null,
           is_preorder: isPreorder,
           delivery_date: isPreorder ? deliveryDate : null,
           total_amount: totalAmount,
-          // No calculamos la seña, esto lo hará el cajero
           deposit_amount: 0,
-          remaining_amount: totalAmount, // El monto pendiente inicialmente es el total
+          remaining_amount: totalAmount, 
           seller_id: user.id,
           status: 'pending',
           order_type: isPreorder ? 'pre_order' : 'regular',
@@ -292,14 +321,15 @@ export function NewOrder() {
   };
 
   return (
-    <div className="h-screen flex flex-col">
-      <div className="flex-none p-4 bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto">
+    <div className="h-[85vh] flex flex-col overflow-hidden bg-gray-50">
+      {/* Header */}
+      <div className="flex-none bg-white shadow-sm py-2 px-4">
+        <div className="max-w-full mx-auto">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-gray-900">Nuevo Pedido</h1>
+            <h1 className="text-xl font-bold text-gray-900">Nuevo Pedido</h1>
             <button
               onClick={() => navigate('/orders')}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50"
+              className="px-3 py-1 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50"
             >
               Cancelar
             </button>
@@ -307,114 +337,130 @@ export function NewOrder() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden">
-        <div className="h-full flex">
-          <div className="w-2/3 bg-gray-50 p-4 overflow-auto">
-            <div className="space-y-4">
-              <div className="bg-white rounded-lg shadow-sm p-4 space-y-4">
-                <div className="flex items-center space-x-4">
-                  <div className="flex-1">
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Search className="h-5 w-5 text-gray-400" />
-                      </div>
-                      <input
-                        type="text"
-                        placeholder="Buscar productos..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex-1">
-                    <select
-                      value={selectedCategory}
-                      onChange={(e) => setSelectedCategory(e.target.value)}
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                    >
-                      <option value="">Todas las categorías</option>
-                      {categories.map((category) => (
-                        <option key={category.id} value={category.id}>
-                          {category.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+      {/* Main content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left panel - Products */}
+        <div className="w-3/5 overflow-hidden flex flex-col p-2">
+          {/* Search and filters */}
+          <div className="bg-white rounded-md shadow-sm p-2 mb-2 flex items-center space-x-2">
+            <div className="relative flex-1">
+              <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                <Search className="h-4 w-4 text-gray-400" />
               </div>
+              <input
+                type="text"
+                placeholder="Buscar productos..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="block w-full pl-8 pr-2 py-1 text-sm border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            </div>
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 text-sm focus:ring-indigo-500 py-1"
+            >
+              <option value="">Todas las categorías</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {filteredProducts.map((product) => (
-                  <button
-                    key={product.id}
-                    onClick={() => handleProductClick(product)}
-                    className="bg-white p-4 rounded-lg shadow-sm hover:shadow-md transition-shadow text-left"
-                  >
-                    <div className="aspect-square mb-2 bg-gray-100 rounded-lg overflow-hidden">
-                      {product.image_url ? (
-                        <img
-                          src={product.image_url}
-                          alt={product.name}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <Package className="w-12 h-12 text-gray-400" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <div className="font-medium text-gray-900 truncate">
-                        {product.name}
+          {/* Products grid */}
+          <div className="flex-1 overflow-y-auto p-1">
+            <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+              {filteredProducts.map((product) => (
+                <button
+                  key={product.id}
+                  onClick={() => handleProductClick(product)}
+                  className="bg-white p-2 rounded-md shadow-sm hover:shadow-md transition-shadow text-left flex flex-col h-44"
+                >
+                  {/* Product image */}
+                  <div className="aspect-square mb-1 bg-gray-100 rounded-md overflow-hidden flex-shrink-0 h-24">
+                    {product.image_url ? (
+                      <img
+                        src={product.image_url}
+                        alt={product.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Package className="w-8 h-8 text-gray-400" />
                       </div>
-                      <div className="text-sm text-gray-500">
+                    )}
+                  </div>
+                  
+                  {/* Product info */}
+                  <div className="flex-1 flex flex-col justify-between overflow-hidden">
+                    <div className="font-medium text-gray-900 text-sm truncate">
+                      {product.name}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs text-gray-500">
                         ${product.price.toFixed(2)}/{product.unit_label}
                       </div>
                       {product.is_weighable && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                          Por kg
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                          kg
                         </span>
                       )}
                     </div>
-                  </button>
-                ))}
-              </div>
+                  </div>
+                </button>
+              ))}
+              
+              {filteredProducts.length === 0 && (
+                <div className="col-span-5 text-center py-10 text-gray-500">
+                  No se encontraron productos
+                </div>
+              )}
             </div>
           </div>
+        </div>
+        
+        {/* Right panel - Order details */}
+        <div className="w-2/5 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
+          {/* Customer details */}
+          <div className="p-3 border-b border-gray-200 space-y-2 overflow-y-auto" style={{ maxHeight: '230px' }}>
+            <div className="flex justify-between items-center">
+              <h2 className="text-sm font-semibold text-gray-800">Datos del Cliente</h2>
+              <label className="flex items-center space-x-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isPreorder}
+                  onChange={(e) => setIsPreorder(e.target.checked)}
+                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-3 w-3"
+                />
+                <span className="text-xs text-gray-700 flex items-center">
+                  <Clock className="h-3 w-3 mr-1" />
+                  Pedido anticipado
+                </span>
+              </label>
+            </div>
+            
+            <div className="grid grid-cols-1 gap-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-700">
+                  Nombre del Cliente
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm py-1"
+                  placeholder="Nombre del cliente"
+                />
+              </div>
 
-          <div className="w-1/3 bg-white border-l border-gray-200 flex flex-col">
-            <div className="p-4 border-b border-gray-200">
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">
-                    Nombre del Cliente
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      checked={isPreorder}
-                      onChange={(e) => setIsPreorder(e.target.checked)}
-                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <span className="text-sm text-gray-700">Pedido anticipado</span>
-                  </label>
-                </div>
-
-                {isPreorder && (
-                  <>
+              {isPreorder && (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">
+                      <label className="block text-xs font-medium text-gray-700">
                         Email del Cliente
                       </label>
                       <input
@@ -422,167 +468,180 @@ export function NewOrder() {
                         required
                         value={customerEmail}
                         onChange={(e) => setCustomerEmail(e.target.value)}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm py-1"
+                        placeholder="Email"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">
-                        Teléfono del Cliente
+                      <label className="block text-xs font-medium text-gray-700">
+                        Teléfono
                       </label>
                       <input
                         type="tel"
                         required
                         value={customerPhone}
                         onChange={(e) => setCustomerPhone(e.target.value)}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm py-1"
+                        placeholder="Teléfono"
                       />
                     </div>
+                  </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">
-                        Fecha de Entrega
-                      </label>
-                      <input
-                        type="datetime-local"
-                        required
-                        value={deliveryDate}
-                        onChange={(e) => setDeliveryDate(e.target.value)}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700">
+                      Fecha de Entrega
+                    </label>
+                    <input
+                      type="datetime-local"
+                      required
+                      value={deliveryDate}
+                      onChange={(e) => setDeliveryDate(e.target.value)}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm py-1"
+                    />
+                  </div>
+                </>
+              )}
             </div>
+          </div>
 
-            <div className="flex-1 overflow-auto p-4">
-              <div className="space-y-4">
-                {items.map((item, index) => (
-                  <div key={index} className="flex items-center space-x-4 py-2 border-b border-gray-200">
-                    <div className="flex-1">
-                      <div className="font-medium">{item.product_name}</div>
-                      <div className="text-sm text-gray-500">
-                        ${item.unit_price.toFixed(2)}/{item.unit_label}
-                      </div>
+          {/* Order items */}
+          <div className="flex-1 overflow-y-auto p-4">
+            <h2 className="text-sm font-semibold text-gray-800 mb-2">Detalle del Pedido</h2>
+            
+            {error && (
+              <div className="mb-3 p-2 text-xs text-red-700 bg-red-50 rounded-md flex items-start">
+                <AlertCircle className="h-3 w-3 mt-0.5 mr-1 flex-shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+            
+            <div className="space-y-2">
+              {items.map((item, index) => (
+                <div key={index} className="flex items-center space-x-2 py-1 border-b border-gray-100">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm truncate">{item.product_name}</div>
+                    <div className="text-xs text-gray-500">
+                      ${item.unit_price.toFixed(2)}/{item.unit_label}
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateQuantity(index, item.quantity - (item.is_weighable ? 0.1 : 1))}
-                        className="p-2 text-gray-500 hover:text-gray-700"
-                      >
-                        <Minus className="h-4 w-4" />
-                      </button>
-                      <div className="w-20 text-center font-medium">
-                        {item.is_weighable ? item.quantity.toFixed(3) : item.quantity}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateQuantity(index, item.quantity + (item.is_weighable ? 0.1 : 1))}
-                        className="p-2 text-gray-500 hover:text-gray-700"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <div className="w-24 text-right font-medium">
-                      ${item.total_price.toFixed(2)}
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateQuantity(index, item.quantity - (item.is_weighable ? 0.1 : 1))}
+                      className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+                    >
+                      <Minus className="h-3 w-3" />
+                    </button>
+                    <div className="w-16 text-center font-medium text-xs">
+                      {item.is_weighable ? item.quantity.toFixed(3) : item.quantity}
                     </div>
                     <button
                       type="button"
-                      onClick={() => handleRemoveItem(index)}
-                      className="text-red-600 hover:text-red-800 p-1"
+                      onClick={() => handleUpdateQuantity(index, item.quantity + (item.is_weighable ? 0.1 : 1))}
+                      className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
                     >
-                      <Trash2 className="h-5 w-5" />
+                      <Plus className="h-3 w-3" />
                     </button>
                   </div>
-                ))}
-
-                {items.length === 0 && (
-                  <div className="text-center py-4 text-gray-500">
-                    No hay productos agregados
+                  <div className="w-16 text-right font-medium text-xs">
+                    ${item.total_price.toFixed(2)}
                   </div>
-                )}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveItem(index)}
+                    className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+
+              {items.length === 0 && (
+                <div className="text-center py-4 text-gray-500 text-sm">
+                  No hay productos agregados
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Footer - Payment and total */}
+          <div className="p-3 border-t border-gray-200 space-y-3">
+            <div className="flex justify-between items-center pb-2">
+              <div className="text-xs text-gray-500">Total a pagar:</div>
+              <div className="text-lg font-bold text-gray-900">
+                ${calculateTotal().toFixed(2)}
               </div>
             </div>
-
-            <div className="p-4 border-t border-gray-200">
-              <div className="space-y-4">
-                <div className="text-right">
-                  <div className="text-lg font-medium">
-                    Total: ${calculateTotal().toFixed(2)}
-                  </div>
-                  {isPreorder && (
-                    <div className="text-sm text-gray-500">
-                      El cajero establecerá el monto de la seña
-                    </div>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod('cash')}
-                    className={`flex items-center justify-center px-3 py-2 border rounded-md text-sm font-medium transition-colors ${
-                      paymentMethod === 'cash'
-                        ? 'bg-green-600 text-white border-green-600'
-                        : 'border-gray-300 text-gray-700 hover:bg-green-50'
-                    }`}
-                  >
-                    <Banknote className="w-4 h-4 mr-2" />
-                    Efectivo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod('credit')}
-                    className={`flex items-center justify-center px-3 py-2 border rounded-md text-sm font-medium transition-colors ${
-                      paymentMethod === 'credit'
-                        ? 'bg-green-600 text-white border-green-600'
-                        : 'border-gray-300 text-gray-700 hover:bg-green-50'
-                    }`}
-                  >
-                    <CreditCard className="w-4 h-4 mr-2" />
-                    Tarjeta
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod('transfer')}
-                    className={`flex items-center justify-center px-3 py-2 border rounded-md text-sm font-medium transition-colors ${
-                      paymentMethod === 'transfer'
-                        ? 'bg-green-600 text-white border-green-600'
-                        : 'border-gray-300 text-gray-700 hover:bg-green-50'
-                    }`}
-                  >
-                    <ArrowRight className="w-4 h-4 mr-2" />
-                    Transfer.
-                  </button>
-                </div>
-
+            
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Método de Pago
+              </label>
+              <div className="grid grid-cols-3 gap-1">
                 <button
                   type="button"
-                  onClick={handleSubmit}
-                  disabled={loading || items.length === 0 || !paymentMethod}
-                  className="w-full px-4 py-2 text-sm font-medium text-white bg-yellow-500 border border-transparent rounded-md shadow-sm hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => setPaymentMethod('cash')}
+                  className={`flex items-center justify-center px-2 py-1 border rounded-md text-xs font-medium transition-colors ${
+                    paymentMethod === 'cash'
+                      ? 'bg-green-600 text-white border-green-600'
+                      : 'border-gray-300 text-gray-700 hover:bg-green-50'
+                  }`}
                 >
-                  {loading ? 'Creando...' : 'Crear Pedido'}
+                  <Banknote className="w-3 h-3 mr-1" />
+                  Efectivo
                 </button>
-
-                {error && (
-                  <div className="p-3 text-sm text-red-700 bg-red-100 rounded-md">
-                    {error}
-                  </div>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('credit')}
+                  className={`flex items-center justify-center px-2 py-1 border rounded-md text-xs font-medium transition-colors ${
+                    paymentMethod === 'credit'
+                      ? 'bg-green-600 text-white border-green-600'
+                      : 'border-gray-300 text-gray-700 hover:bg-green-50'
+                  }`}
+                >
+                  <CreditCard className="w-3 h-3 mr-1" />
+                  Tarjeta
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('transfer')}
+                  className={`flex items-center justify-center px-2 py-1 border rounded-md text-xs font-medium transition-colors ${
+                    paymentMethod === 'transfer'
+                      ? 'bg-green-600 text-white border-green-600'
+                      : 'border-gray-300 text-gray-700 hover:bg-green-50'
+                  }`}
+                >
+                  <ArrowRight className="w-3 h-3 mr-1" />
+                  Transfer.
+                </button>
               </div>
             </div>
+
+            {isPreorder && (
+              <div className="text-xs text-gray-500 bg-yellow-50 p-2 rounded text-center">
+                El cajero establecerá el monto de la seña al procesar el pago
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={loading || items.length === 0 || !paymentMethod || !customerName}
+              className="w-full px-4 py-2 text-sm font-medium text-white bg-yellow-500 border border-transparent rounded-md shadow-sm hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Creando...' : 'Crear Pedido'}
+            </button>
           </div>
         </div>
       </div>
 
+      {/* Quantity modal for weighable products */}
       {showQuantityModal && selectedProduct && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <div className="text-center space-y-4">
-              <h3 className="text-lg font-medium text-gray-900">
+          <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-4">
+            <div className="text-center space-y-3">
+              <h3 className="text-md font-medium text-gray-900">
                 {selectedProduct.name}
               </h3>
               <p className="text-sm text-gray-500">
@@ -598,9 +657,9 @@ export function NewOrder() {
                     onMouseLeave={stopIncrementing}
                     onTouchStart={() => startIncrementing(false)}
                     onTouchEnd={stopIncrementing}
-                    className="p-2 text-gray-500 hover:text-gray-700 text-2xl"
+                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full"
                   >
-                    <Minus className="h-6 w-6" />
+                    <Minus className="h-5 w-5" />
                   </button>
                   <input
                     type="number"
@@ -608,7 +667,7 @@ export function NewOrder() {
                     onChange={(e) => setTempQuantity(e.target.value)}
                     step="0.001"
                     min="0"
-                    className="block w-32 text-center text-3xl py-3 border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    className="block w-28 text-center text-2xl py-2 border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                   />
                   <button
                     type="button"
@@ -617,9 +676,9 @@ export function NewOrder() {
                     onMouseLeave={stopIncrementing}
                     onTouchStart={() => startIncrementing(true)}
                     onTouchEnd={stopIncrementing}
-                    className="p-2 text-gray-500 hover:text-gray-700 text-2xl"
+                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full"
                   >
-                    <Plus className="h-6 w-6" />
+                    <Plus className="h-5 w-5" />
                   </button>
                 </div>
               ) : (
@@ -627,9 +686,9 @@ export function NewOrder() {
                   <button
                     type="button"
                     onClick={() => setTempQuantity(Math.max(1, parseInt(tempQuantity) - 1).toString())}
-                    className="p-2 text-gray-500 hover:text-gray-700 text-2xl"
+                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full"
                   >
-                    <Minus className="h-6 w-6" />
+                    <Minus className="h-5 w-5" />
                   </button>
                   <input
                     type="number"
@@ -637,19 +696,19 @@ export function NewOrder() {
                     onChange={(e) => setTempQuantity(e.target.value)}
                     min="1"
                     step="1"
-                    className="block w-24 text-center text-3xl py-3 border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    className="block w-24 text-center text-2xl py-2 border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                   />
                   <button
                     type="button"
                     onClick={() => setTempQuantity((parseInt(tempQuantity) + 1).toString())}
-                    className="p-2 text-gray-500 hover:text-gray-700 text-2xl"
+                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full"
                   >
-                    <Plus className="h-6 w-6" />
+                    <Plus className="h-5 w-5" />
                   </button>
                 </div>
               )}
 
-              <div className="flex space-x-3">
+              <div className="pt-2 flex space-x-3">
                 <button
                   type="button"
                   onClick={() => {
