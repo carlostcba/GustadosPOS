@@ -506,7 +506,7 @@ export function NewOrder() {
           </div>
 
           {/* Order items */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto p-2">
             <h2 className="text-sm font-semibold text-gray-800 mb-2">Detalle del Pedido</h2>
             
             {error && (
