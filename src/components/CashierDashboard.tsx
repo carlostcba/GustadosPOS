@@ -6,18 +6,17 @@ import {
   Banknote, 
   ArrowRight, 
   XCircle,
-  ChevronDown,
-  Percent,
-  Receipt,
   Loader2,
   PlusCircle,
   MinusCircle,
-  AlertTriangle
+  Receipt,
+  Search
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { OrderDetails } from './OrderDetails';
 import { CashRegisterReport } from './CashRegisterReport';
 import { CashRegisterExpenses } from './CashRegisterExpenses';
+import { PaymentProcessor } from './PaymentProcessor';
 
 type Order = {
   id: string;
@@ -45,320 +44,6 @@ type CashRegister = {
   closed_at: string | null;
   expenses_total: number;
 };
-
-type PaymentMethodType = 'cash' | 'credit' | 'transfer';
-
-type PaymentMenuProps = {
-  order: Order;
-  onProcess: (method: PaymentMethodType, discount?: number, customDepositAmount?: number) => void;
-  onClose: () => void;
-};
-
-function PaymentMenu({ order, onProcess, onClose }: PaymentMenuProps) {
-  const [discountPercent, setDiscountPercent] = useState(0);
-  const [couponCode, setCouponCode] = useState('');
-  const [couponError, setCouponError] = useState<string | null>(null);
-  const [couponLoading, setCouponLoading] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethodType>(
-    (order.payment_method as PaymentMethodType) || 'cash'
-  );
-  
-  // Para pedidos anticipados con estado 'pending', permitimos cambiar el monto de la seña
-  const [depositAmount, setDepositAmount] = useState<number>(
-    order.is_preorder && order.status === 'pending' ? order.deposit_amount : 0
-  );
-  
-  // Determine the base amount to be paid based on order status and custom deposit
-  const baseAmount = order.is_preorder ? 
-    order.status === 'pending' ? depositAmount : order.remaining_amount 
-    : order.total_amount;
-  
-  // Calculate final amount after discount - SOLO aplicar si el método es efectivo
-  const discountAmount = selectedPaymentMethod === 'cash' ? (baseAmount * discountPercent) / 100 : 0;
-  const finalAmount = baseAmount - discountAmount;
-
-  useEffect(() => {
-    // Si se cambia el método de pago a algo que no sea efectivo, resetear el descuento
-    if (selectedPaymentMethod !== 'cash' && discountPercent > 0) {
-      setDiscountPercent(0);
-      setCouponCode('');
-    }
-  }, [selectedPaymentMethod]);
-
-  const validateCoupon = async (code: string) => {
-    if (!code.trim()) {
-      setCouponError("Ingrese un código de cupón");
-      return;
-    }
-    
-    // Si el método de pago no es efectivo, no permitir aplicar cupones
-    if (selectedPaymentMethod !== 'cash') {
-      setCouponError("Los cupones solo se pueden aplicar a pagos en efectivo");
-      return;
-    }
-    
-    try {
-      setCouponLoading(true);
-      setCouponError(null);
-      
-      // Check if coupon exists and is active
-      const { data, error } = await supabase
-        .from('coupons')
-        .select('*')
-        .eq('code', code.toUpperCase())
-        .eq('is_active', true)
-        .single();
-
-      if (error) {
-        throw new Error('Cupón no encontrado o inactivo');
-      }
-      
-      // Check if the coupon can be applied to this order type
-      //if (order.is_preorder && !data.applies_to_preorders) {
-      //  throw new Error('Este cupón no es válido para pedidos anticipados');
-      //}
-      
-      // Check if the coupon has reached its usage limit
-      if (data.usage_limit > 0) {
-        const { count, error: usageError } = await supabase
-          .from('coupon_usages')
-          .select('*', { count: 'exact' })
-          .eq('coupon_id', data.id);
-          
-        if (usageError) throw usageError;
-        
-        if (count && count >= data.usage_limit) {
-          throw new Error('Este cupón ha alcanzado su límite de uso');
-        }
-      }
-      
-      // Verificar si ya existe un cupón aplicado a esta orden
-      const { data: existingUsage, error: existingError } = await supabase
-        .from('coupon_usages')
-        .select('*')
-        .eq('order_id', order.id)
-        .limit(1);
-        
-      if (!existingError && existingUsage && existingUsage.length > 0) {
-        throw new Error('Ya existe un cupón aplicado a esta orden');
-      }
-      
-      // Apply the discount
-      setDiscountPercent(data.discount_percentage);
-      
-    } catch (error: any) {
-      setCouponError(error.message);
-      setDiscountPercent(0);
-    } finally {
-      setCouponLoading(false);
-    }
-  };
-
-  // Don't allow payment if order is already paid
-  if (order.status === 'paid') {
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 p-6">
-          <div className="text-center">
-            <AlertTriangle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-red-600 mb-2">Pedido ya pagado</h3>
-            <p className="text-gray-500 mb-4">Este pedido ya ha sido pagado completamente.</p>
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
-            >
-              Cerrar
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex justify-between items-center mb-2">
-            <h3 className="text-lg font-medium">Cobrar Pedido</h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
-              <XCircle className="h-5 w-5" />
-            </button>
-          </div>
-          <div className="space-y-1">
-            <p className="text-sm text-gray-500">
-              Pedido #{order.order_number}
-            </p>
-            <p className="text-sm text-gray-500">
-              Cliente: {order.customer_name}
-            </p>
-            <p className="font-medium">
-              Total: ${order.total_amount.toFixed(2)}
-            </p>
-            {order.is_preorder && (
-              <>
-                {order.status === 'pending' ? (
-                  <div className="mt-3">
-                    <label className="block text-sm font-medium text-green-700 mb-1">
-                      Monto de Seña a Cobrar
-                    </label>
-                    <div className="mt-1 relative rounded-md shadow-sm">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <span className="text-gray-500 sm:text-sm">$</span>
-                      </div>
-                      <input
-                        type="number"
-                        min="0"
-                        max={order.total_amount}
-                        step="0.01"
-                        value={depositAmount}
-                        onChange={(e) => {
-                          const value = parseFloat(e.target.value);
-                          if (!isNaN(value) && value >= 0 && value <= order.total_amount) {
-                            setDepositAmount(value);
-                          }
-                        }}
-                        className="block w-full pl-7 pr-12 py-2 sm:text-sm border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500"
-                      />
-                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-                        <button 
-                          type="button"
-                          onClick={() => setDepositAmount(order.total_amount * 0.5)}
-                          className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded hover:bg-green-200"
-                        >
-                          50%
-                        </button>
-                      </div>
-                    </div>
-                    <p className="mt-1 text-sm text-gray-500">
-                      Restante: ${(order.total_amount - depositAmount).toFixed(2)}
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <p className="text-sm text-gray-500">
-                      Seña pagada: ${order.deposit_amount.toFixed(2)}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      Restante: ${order.remaining_amount.toFixed(2)}
-                    </p>
-                    <p className="text-sm font-medium text-brand-green">
-                      Cobrando saldo restante
-                    </p>
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="p-4 space-y-4">
-          <p className="text-sm font-medium text-gray-700 mb-2">Método de Pago</p>
-          
-          <div className="grid grid-cols-3 gap-2">
-            <label className={`flex flex-col items-center justify-center p-3 border rounded-md cursor-pointer ${selectedPaymentMethod === 'cash' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
-              <input 
-                type="radio" 
-                name="paymentMethod" 
-                value="cash" 
-                checked={selectedPaymentMethod === 'cash'} 
-                onChange={() => setSelectedPaymentMethod('cash')}
-                className="sr-only"
-              />
-              <Banknote className="h-5 w-5 text-gray-600 mb-1" />
-              <span className="text-sm">Efectivo</span>
-            </label>
-
-            <label className={`flex flex-col items-center justify-center p-3 border rounded-md cursor-pointer ${selectedPaymentMethod === 'credit' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
-              <input 
-                type="radio" 
-                name="paymentMethod" 
-                value="credit" 
-                checked={selectedPaymentMethod === 'credit'} 
-                onChange={() => setSelectedPaymentMethod('credit')}
-                className="sr-only"
-              />
-              <CreditCard className="h-5 w-5 text-gray-600 mb-1" />
-              <span className="text-sm">Tarjeta</span>
-            </label>
-
-            <label className={`flex flex-col items-center justify-center p-3 border rounded-md cursor-pointer ${selectedPaymentMethod === 'transfer' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}>
-              <input 
-                type="radio" 
-                name="paymentMethod" 
-                value="transfer" 
-                checked={selectedPaymentMethod === 'transfer'} 
-                onChange={() => setSelectedPaymentMethod('transfer')}
-                className="sr-only"
-              />
-              <ArrowRight className="h-5 w-5 text-gray-600 mb-1" />
-              <span className="text-sm">Transferencia</span>
-            </label>
-          </div>
-
-          {/* Mostrar sección de cupones SOLO cuando el método de pago es efectivo */}
-          {selectedPaymentMethod === 'cash' && (
-            <div className="mt-4 pt-4 border-t border-gray-200">
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Cupón de Descuento (solo para efectivo)
-                  </label>
-                  <div className="flex space-x-2">
-                    <input
-                      type="text"
-                      value={couponCode}
-                      onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                      placeholder="Ingrese código"
-                      className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => validateCoupon(couponCode)}
-                      disabled={couponLoading}
-                      className="px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-                    >
-                      {couponLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Validar'}
-                    </button>
-                  </div>
-                  {couponError && (
-                    <p className="mt-1 text-sm text-red-600">{couponError}</p>
-                  )}
-                </div>
-
-                {discountPercent > 0 && (
-                  <div className="text-sm text-gray-500 bg-green-50 p-3 rounded-md">
-                    <p className="text-green-700 font-medium">Descuento aplicado: {discountPercent}%</p>
-                    <p>Descuento: -${discountAmount.toFixed(2)}</p>
-                    <p className="font-medium">Final: ${finalAmount.toFixed(2)}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div className="mt-4 p-4 bg-gray-50 rounded-md text-center">
-            <p className="text-sm text-gray-500">Total a pagar</p>
-            <p className="text-xl font-bold text-gray-900">${finalAmount.toFixed(2)}</p>
-          </div>
-
-          <button
-            onClick={() => onProcess(
-              selectedPaymentMethod, 
-              selectedPaymentMethod === 'cash' ? discountPercent : 0,
-              order.is_preorder && order.status === 'pending' ? depositAmount : undefined
-            )}
-            className="w-full flex justify-center items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            disabled={order.is_preorder && order.status === 'pending' && depositAmount <= 0}
-          >
-            <Receipt className="h-4 w-4 mr-2" />
-            Procesar Pago
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export function CashierDashboard() {
   const { user } = useAuth();
@@ -546,199 +231,6 @@ export function CashierDashboard() {
     }
   }
 
-  async function processPayment(order: Order, paymentMethod: PaymentMethodType, discountPercent: number = 0, customDepositAmount?: number) {
-  if (!user || !activeRegister) return;
-  setError(null);
-
-  try {
-    // 1. Calcular el monto a pagar inicial (sin descuento aún)
-    let initialAmount = order.is_preorder ? 
-      order.status === 'pending' ? 
-        (customDepositAmount !== undefined ? customDepositAmount : order.deposit_amount) 
-        : order.remaining_amount
-      : order.total_amount;
-    
-    // 2. Aplicar descuento si es pago en efectivo
-    let discountAmount = 0;
-    let paymentAmount = initialAmount;
-    
-    if (discountPercent > 0 && paymentMethod === 'cash') {
-      discountAmount = (initialAmount * discountPercent) / 100;
-      paymentAmount = initialAmount - discountAmount;
-    }
-    
-    // 3. Calcular cómo afecta el descuento al total del pedido
-    let updatedTotalAmount = order.total_amount;
-    let updatedDepositAmount = order.deposit_amount;
-    let updatedRemainingAmount = order.remaining_amount;
-    
-    if (discountPercent > 0 && paymentMethod === 'cash') {
-      // Calcular cuánto se reduce el total del pedido
-      const totalDiscount = order.total_amount * discountPercent / 100;
-      updatedTotalAmount = order.total_amount - totalDiscount;
-      
-      // Actualizar los valores según el tipo de pago
-      if (order.is_preorder) {
-        if (order.status === 'pending') {
-          // Estamos pagando una seña con descuento
-          updatedDepositAmount = paymentAmount; // La seña es el monto pagado con descuento
-          updatedRemainingAmount = updatedTotalAmount - updatedDepositAmount; // El restante es el total con descuento menos la seña
-        } else {
-          // Estamos pagando el saldo restante con descuento
-          updatedRemainingAmount = paymentAmount; // El restante es el monto pagado con descuento
-        }
-      } else {
-        // Es un pago regular (no preorden), no hay que calcular montos de seña ni restante
-        updatedRemainingAmount = 0;
-      }
-    } else if (customDepositAmount !== undefined && order.is_preorder && order.status === 'pending') {
-      // Caso sin descuento pero con una seña personalizada
-      updatedDepositAmount = customDepositAmount;
-      updatedRemainingAmount = updatedTotalAmount - updatedDepositAmount;
-    }
-    
-    // 4. Actualizar el pedido en la base de datos
-    const orderUpdateData: Record<string, any> = {
-      total_amount: updatedTotalAmount
-    };
-    
-    // Agregar campos específicos según el estado del pedido
-    if (order.is_preorder && order.status === 'pending') {
-      orderUpdateData.deposit_amount = updatedDepositAmount;
-      orderUpdateData.remaining_amount = updatedRemainingAmount;
-    } else if (order.is_preorder && order.status === 'processing') {
-      orderUpdateData.remaining_amount = 0; // Si es pago final, el restante es 0
-    }
-    
-    // 5. Guardar los cambios en la base de datos
-    const { error: updateOrderError } = await supabase
-      .from('orders')
-      .update(orderUpdateData)
-      .eq('id', order.id);
-    
-    if (updateOrderError) throw updateOrderError;
-    
-    // 6. Registrar el pago
-    const paymentData: Record<string, any> = {
-      order_id: order.id,
-      amount: paymentAmount, // Guardar el monto con descuento aplicado
-      payment_method: paymentMethod,
-      is_deposit: order.is_preorder && order.status === 'pending'
-    };
-    
-    // Agregar información de descuento si corresponde
-    if (discountPercent > 0 && paymentMethod === 'cash') {
-      paymentData.discount_percentage = discountPercent;
-      paymentData.discount_amount = discountAmount;
-    }
-    
-    const { data: payment, error: paymentError } = await supabase
-      .from('payments')
-      .insert(paymentData)
-      .select()
-      .single();
-    
-    if (paymentError) throw paymentError;
-    
-    // 7. Registrar uso de cupón si aplica
-    if (discountPercent > 0 && paymentMethod === 'cash') {
-      const { data: coupons, error: couponsError } = await supabase
-        .from('coupons')
-        .select('id')
-        .eq('discount_percentage', discountPercent)
-        .limit(1);
-        
-      if (!couponsError && coupons && coupons.length > 0) {
-        const { error: usageError } = await supabase
-          .from('coupon_usages')
-          .insert({
-            order_id: order.id,
-            payment_id: payment.id,
-            coupon_id: coupons[0].id,
-            discount_amount: discountAmount,
-          });
-
-        if (usageError) console.error('Error registrando uso de cupón:', usageError);
-      }
-    }
-
-    // 8. Actualizar estado del pedido
-    const newStatus = order.is_preorder ? 
-      order.status === 'pending' ? 'processing' : 'paid' : 'paid';
-      
-    const statusUpdateData: Record<string, any> = {
-      status: newStatus,
-      cashier_id: user.id,
-      payment_method: paymentMethod,
-    };
-    
-    // Registrar fechas de pago
-    const currentDate = new Date().toISOString();
-    if (order.is_preorder) {
-      if (order.status === 'pending') {
-        statusUpdateData.first_payment_date = currentDate;
-        statusUpdateData.last_payment_date = currentDate;
-      } else {
-        statusUpdateData.last_payment_date = currentDate;
-      }
-    } else {
-      statusUpdateData.first_payment_date = currentDate;
-      statusUpdateData.last_payment_date = currentDate;
-    }
-    
-    const { error: statusError } = await supabase
-      .from('orders')
-      .update(statusUpdateData)
-      .eq('id', order.id);
-
-    if (statusError) throw statusError;
-
-    // 9. Actualizar totales del registro de caja
-    let registerUpdateData: Record<string, any> = {};
-    
-    if (paymentMethod === 'cash') {
-      registerUpdateData.cash_sales = activeRegister.cash_sales + paymentAmount;
-    } else if (paymentMethod === 'credit') {
-      registerUpdateData.card_sales = activeRegister.card_sales + paymentAmount;
-    } else if (paymentMethod === 'transfer') {
-      registerUpdateData.transfer_sales = activeRegister.transfer_sales + paymentAmount;
-    }
-    
-    // Registrar seña si corresponde
-    if (order.is_preorder && order.status === 'pending') {
-      registerUpdateData.deposits_received = activeRegister.deposits_received + paymentAmount;
-    }
-    
-    const { error: registerError } = await supabase
-      .from('cash_registers')
-      .update(registerUpdateData)
-      .eq('id', activeRegister.id);
-      
-    if (registerError) throw registerError;
-
-    // 10. Agregar a la cola de órdenes si es pago final
-    if (newStatus === 'paid') {
-      const { error: queueError } = await supabase
-        .from('order_queue')
-        .insert({
-          order_id: order.id,
-          priority: order.is_preorder ? 1 : 0,
-          status: 'waiting'
-        });
-
-      if (queueError) throw queueError;
-    }
-
-    // 11. Finalizar proceso
-    setShowPaymentMenu(null);
-    await Promise.all([fetchOrders(), fetchActiveRegister()]);
-    
-  } catch (error: any) {
-    console.error('Error processing payment:', error);
-    setError('Error al procesar el pago: ' + error.message);
-  }
-}
-
   // Calculate total sales and balance
   const calculateTotalSales = () => {
     if (!activeRegister) return 0;
@@ -748,6 +240,13 @@ export function CashierDashboard() {
   const calculateTotalInRegister = () => {
     if (!activeRegister) return 0;
     return activeRegister.opening_amount + activeRegister.cash_sales - activeRegister.expenses_total;
+  };
+
+  // Handle payment processed by payment processor component
+  const handlePaymentProcessed = async () => {
+    setShowPaymentMenu(null);
+    // Refresh data
+    await Promise.all([fetchOrders(), fetchActiveRegister()]);
   };
 
   if (loading) {
@@ -1074,6 +573,9 @@ export function CashierDashboard() {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 text-sm"
               />
+              <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                <Search className="h-4 w-4 text-gray-400" />
+              </div>
             </div>
           </div>
         </div>
@@ -1162,13 +664,11 @@ export function CashierDashboard() {
       )}
 
       {showPaymentMenu && (
-        <PaymentMenu
+        <PaymentProcessor
           order={orders.find(o => o.id === showPaymentMenu)!}
-          onProcess={(method, discount, customDepositAmount) => {
-            const order = orders.find(o => o.id === showPaymentMenu)!;
-            processPayment(order, method, discount, customDepositAmount);
-          }}
+          registerId={activeRegister.id}
           onClose={() => setShowPaymentMenu(null)}
+          onPaymentProcessed={handlePaymentProcessed}
         />
       )}
 

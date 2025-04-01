@@ -38,7 +38,7 @@ export function OrderList() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
-
+  
   useEffect(() => {
     if (user) {
       fetchProfile();
@@ -46,22 +46,41 @@ export function OrderList() {
   }, [user]);
 
   useEffect(() => {
+    let channel: any = null;
+    
     if (profile) {
       fetchOrders();
       
-      const channel = supabase
-        .channel('orders')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'orders' },
-          () => fetchOrders()
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
+      // Crear un solo canal por componente, sin intentar removerlo en cleanup
+      try {
+        // Solo crear canal si no existe
+        if (!channel) {
+          channel = supabase
+            .channel('public:orders')
+            .on(
+              'postgres_changes',
+              { event: '*', schema: 'public', table: 'orders' },
+              () => {
+                console.log('Cambios en tabla orders detectados');
+                fetchOrders();
+              }
+            )
+            .subscribe((status) => {
+              console.log('Estado de suscripción:', status);
+            });
+          
+          console.log('Canal creado:', channel);
+        }
+      } catch (err) {
+        console.error('Error al crear canal de Supabase:', err);
+      }
     }
+    
+    // En este enfoque, no intentamos eliminar el canal
+    // Esto evita errores cuando se desmonta el componente
+    return () => {
+      // Nada que limpiar
+    };
   }, [profile]);
 
   async function fetchProfile() {
