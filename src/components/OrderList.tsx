@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { Clock, Package, Truck, Calendar, Pencil, X, Trash2, AlertTriangle, Eye, DollarSign, CreditCard, ArrowRight } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
@@ -39,6 +39,9 @@ export function OrderList() {
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   
+  // Usar useRef para mantener la referencia al canal entre renderizados
+  const channelRef = useRef<any>(null);
+  
   useEffect(() => {
     if (user) {
       fetchProfile();
@@ -46,40 +49,40 @@ export function OrderList() {
   }, [user]);
 
   useEffect(() => {
-    let channel: any = null;
-    
     if (profile) {
       fetchOrders();
       
-      // Crear un solo canal por componente, sin intentar removerlo en cleanup
+      // Crear un canal solo si no existe ya
       try {
-        // Solo crear canal si no existe
-        if (!channel) {
-          channel = supabase
-            .channel('public:orders')
+        if (!channelRef.current) {
+          console.log('Inicializando canal de Supabase...');
+          
+          channelRef.current = supabase
+            .channel('orders-changes')
             .on(
               'postgres_changes',
               { event: '*', schema: 'public', table: 'orders' },
-              () => {
-                console.log('Cambios en tabla orders detectados');
+              (payload) => {
+                console.log('Cambios en tabla orders detectados:', payload);
                 fetchOrders();
               }
             )
             .subscribe((status) => {
               console.log('Estado de suscripción:', status);
             });
-          
-          console.log('Canal creado:', channel);
         }
       } catch (err) {
         console.error('Error al crear canal de Supabase:', err);
       }
     }
     
-    // En este enfoque, no intentamos eliminar el canal
-    // Esto evita errores cuando se desmonta el componente
+    // Limpiar el canal cuando el componente se desmonta
     return () => {
-      // Nada que limpiar
+      if (channelRef.current) {
+        console.log('Limpiando canal de Supabase...');
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
     };
   }, [profile]);
 
