@@ -40,6 +40,7 @@ type PaymentProcessorProps = {
 export function PaymentProcessor({ order, registerId, onClose, onPaymentProcessed }: PaymentProcessorProps) {
   const { user } = useAuth();
   const [error, setError] = useState<string | null>(null);
+  const [cashPaidBefore, setCashPaidBefore] = useState(0);
   const [discountPercent, setDiscountPercent] = useState(0);
   const [loading, setLoading] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
@@ -64,17 +65,60 @@ export function PaymentProcessor({ order, registerId, onClose, onPaymentProcesse
     }
   }, [selectedPaymentMethod]);
 
-  // Verify that order exists before accessing properties
-  // Determine the base amount to be paid based on order status and custom deposit
-  const baseAmount = order ? (
-    order.is_preorder ? 
-      order.status === 'pending' ? depositAmount : order.remaining_amount 
-      : order.total_amount
-  ) : 0;
+  useEffect(() => {
+    const fetchPreviousCashPayments = async () => {
+      if (!order?.id) return;
   
-  // Calculate final amount after discount
-  const discountAmount = (baseAmount * discountPercent) / 100;
-  const finalAmount = baseAmount - discountAmount;
+      const { data, error } = await supabase
+        .from('payments')
+        .select('pay_cash')
+        .eq('order_id', order.id);
+  
+      if (!error && data) {
+        const totalCash = data.reduce((sum, p) => sum + (p.pay_cash || 0), 0);
+        setCashPaidBefore(totalCash);
+      }
+    };
+  
+    fetchPreviousCashPayments();
+  }, [order?.id]);
+  
+
+  // Detectar tipo de operación
+const isPayingDeposit = order?.is_preorder && order.status === 'pending';
+const isPayingRemaining = order?.is_preorder && order.status !== 'pending';
+//const isRegularOrder = !order?.is_preorder;
+
+// Calcular el monto base actual
+const baseAmount = order ? (
+  isPayingDeposit
+    ? depositAmount
+    : isPayingRemaining
+      ? order.remaining_amount
+      : order.total_amount
+) : 0;
+
+// Calcular el monto elegible para descuento (placeholder: monto total actual)
+const eligibleAmountForDiscount = baseAmount;
+
+// Calcular cuánto se paga en efectivo del monto elegible
+const cashPortion = selectedPaymentMethod === 'cash'
+  ? isPayingDeposit
+    ? depositAmount
+    : isPayingRemaining
+      ? cashPaidBefore + (order.remaining_amount || 0)
+      : eligibleAmountForDiscount
+  : 0;
+
+// Calcular descuento solo sobre efectivo
+const discountAmount = (cashPortion * discountPercent) / 100;
+
+// Total con descuento aplicado (no restamos seña aquí)
+const discountedTotal = baseAmount - discountAmount;
+
+// Total final a cobrar
+const finalAmount = discountedTotal;
+
 
   // Determinar el tipo de pago para mostrar en la confirmación
   const getPaymentType = (): 'full' | 'deposit' | 'remaining' => {
@@ -137,15 +181,21 @@ export function PaymentProcessor({ order, registerId, onClose, onPaymentProcesse
       }
       
       // Create payment record
+      const isDeposit = order.is_preorder && order.status === 'pending';
+      const payCash = selectedPaymentMethod === 'cash' ? finalAmount : 0;
+      const payNonCash = selectedPaymentMethod !== 'cash' ? finalAmount : 0;
+
       const { data: payment, error: paymentError } = await supabase
         .from('payments')
         .insert({
           order_id: order.id,
           amount: finalAmount,
           payment_method: selectedPaymentMethod,
-          is_deposit: order.is_preorder && order.status === 'pending',
+          is_deposit: isDeposit,
           discount_percentage: discountPercent > 0 ? discountPercent : null,
-          discount_amount: discountAmount > 0 ? discountAmount : null
+          discount_amount: discountAmount > 0 ? discountAmount : null,
+          pay_cash: payCash,
+          pay_non_cash: payNonCash
         })
         .select()
         .single();
@@ -188,19 +238,11 @@ export function PaymentProcessor({ order, registerId, onClose, onPaymentProcesse
         last_payment_date: new Date().toISOString()
       };
       
-      // Si es un pago final con descuento, actualizar el monto total
-      if (discountPercent > 0 && (newStatus === 'paid' || (order.is_preorder && order.status === 'pending'))) {
-        if (order.is_preorder && order.status === 'pending') {
-          // Si es un pago de seña con descuento
-          updateOrderData.deposit_amount = finalAmount;
-          updateOrderData.remaining_amount = order.total_amount - finalAmount;
-        } else if (newStatus === 'paid') {
-          // Si es un pago final con descuento
-          updateOrderData.total_amount = order.is_preorder ? 
-            order.deposit_amount + finalAmount : 
-            finalAmount;
-        }
-      }
+      // Si hay descuento, actualizar los montos de la orden
+      if (discountPercent > 0) {
+        updateOrderData.discount_percentage = discountPercent;
+        updateOrderData.discount_total = discountAmount;
+      }      
         
       const { error: orderError } = await supabase
         .from('orders')
@@ -428,10 +470,16 @@ export function PaymentProcessor({ order, registerId, onClose, onPaymentProcesse
             <div className="mt-4 p-4 bg-gray-50 rounded-md text-center">
               <p className="text-sm text-gray-500">Total a pagar</p>
               <p className="text-xl font-bold text-gray-900">${finalAmount.toFixed(2)}</p>
-              
+
               {discountPercent > 0 && (
                 <div className="mt-2 text-sm text-green-600">
                   (Incluye descuento del {discountPercent}%: -${discountAmount.toFixed(2)})
+                </div>
+              )}
+
+              {discountPercent > 0 && selectedPaymentMethod !== 'cash' && (
+                <div className="mt-2 text-xs text-yellow-600 italic">
+                  El descuento solo aplica para pagos en efectivo.
                 </div>
               )}
             </div>
