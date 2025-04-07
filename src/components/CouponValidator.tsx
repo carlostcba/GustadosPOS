@@ -6,16 +6,23 @@ type PaymentMethodType = 'cash' | 'credit' | 'transfer';
 
 type CouponValidatorProps = {
   orderTotal: number;
-  isPreorder: boolean;
   onDiscountApplied: (discountPercentage: number) => void;
   selectedPaymentMethod: PaymentMethodType;
+  prepaidCashExists: boolean;
+  discountAmount: number;
+  resetTrigger: any; // NUEVO
 };
+
 
 export function CouponValidator({ 
   orderTotal, 
-  isPreorder, 
+  //isPreorder, 
   onDiscountApplied, 
-  selectedPaymentMethod 
+  selectedPaymentMethod,
+  prepaidCashExists,
+  //cashPortion,
+  discountAmount,
+  resetTrigger
 }: CouponValidatorProps) {
   const [couponCode, setCouponCode] = useState('');
   const [couponError, setCouponError] = useState<string | null>(null);
@@ -25,19 +32,28 @@ export function CouponValidator({
     discount_percentage: number;
   } | null>(null);
 
-  // Efecto para limpiar el cupón cuando el método de pago cambia a uno no válido
+  // ✅ Limpia cupón si ya no se permite por no haber efectivo en total
   useEffect(() => {
-    if (appliedCoupon && selectedPaymentMethod !== 'cash') {
+    if (appliedCoupon && selectedPaymentMethod !== 'cash' && !prepaidCashExists) {
       setCouponError("Los descuentos solo aplican a pagos en efectivo");
       setAppliedCoupon(null);
       onDiscountApplied(0);
     }
-  }, [selectedPaymentMethod, appliedCoupon, onDiscountApplied]);
+  }, [selectedPaymentMethod, prepaidCashExists, appliedCoupon, onDiscountApplied]);
+
+  // ✅ Resetear cupón al cambiar el resetTrigger (ej. método de pago)
+  useEffect(() => {
+    if (appliedCoupon) {
+      clearCoupon();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetTrigger]);
+
 
   const validateCoupon = async (code: string) => {
-    // Verificar que el método de pago sea efectivo
-    if (selectedPaymentMethod !== 'cash') {
+    if (selectedPaymentMethod !== 'cash' && !prepaidCashExists) {
       setCouponError("Los descuentos solo aplican a pagos en efectivo");
+      onDiscountApplied(0);
       return;
     }
 
@@ -45,12 +61,11 @@ export function CouponValidator({
       setCouponError("Ingrese un código de cupón");
       return;
     }
-    
+
     try {
       setCouponLoading(true);
       setCouponError(null);
       
-      // Check if coupon exists and is active
       const { data, error } = await supabase
         .from('coupons')
         .select('*')
@@ -58,47 +73,38 @@ export function CouponValidator({
         .eq('is_active', true)
         .single();
 
-      if (error) {
-        throw new Error('Cupón no encontrado o inactivo');
-      } 
-      
-      // Check if the coupon has minimum amount requirements
+      if (error) throw new Error('Cupón no encontrado o inactivo');
+
       if (data.min_order_amount && orderTotal < data.min_order_amount) {
         throw new Error(`Este cupón requiere un monto mínimo de $${data.min_order_amount.toFixed(2)}`);
       }
-      
-      // Check if the coupon has reached its usage limit
+
       if (data.usage_limit > 0) {
         const { count, error: usageError } = await supabase
           .from('coupon_usages')
           .select('*', { count: 'exact' })
           .eq('coupon_id', data.id);
-          
+
         if (usageError) throw usageError;
-        
-        if (count && count >= data.usage_limit) {
-          throw new Error('Este cupón ha alcanzado su límite de uso');
-        }
+        if (count && count >= data.usage_limit) throw new Error('Este cupón ha alcanzado su límite de uso');
       }
-      
-      // Check if the coupon is within its valid date range
+
       const now = new Date();
       if (data.valid_from && new Date(data.valid_from) > now) {
         throw new Error('Este cupón aún no es válido');
       }
-      
+
       if (data.valid_until && new Date(data.valid_until) < now) {
         throw new Error('Este cupón ha expirado');
       }
-      
-      // Apply the discount
+
       setAppliedCoupon({
         code: data.code,
         discount_percentage: data.discount_percentage
       });
-      
+
       onDiscountApplied(data.discount_percentage);
-      
+
     } catch (error: any) {
       setCouponError(error.message);
       setAppliedCoupon(null);
@@ -115,18 +121,19 @@ export function CouponValidator({
     onDiscountApplied(0);
   };
 
-  // Manejador para la tecla Enter en el campo de texto
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      e.preventDefault(); // Prevenir el comportamiento por defecto
+      e.preventDefault();
       if (couponCode.trim() && !couponLoading && !appliedCoupon) {
         validateCoupon(couponCode);
       }
     }
   };
 
-  // Si el método de pago no es efectivo, mostrar un mensaje de advertencia
-  if (selectedPaymentMethod !== 'cash') {
+  // ✅ Mostrar advertencia solo si NO hay efectivo (ni actual ni previo)
+  const noCashAvailable = selectedPaymentMethod !== 'cash' && !prepaidCashExists;
+
+  if (noCashAvailable) {
     return (
       <div className="space-y-3">
         <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start">
@@ -147,7 +154,7 @@ export function CouponValidator({
           <Tag className="w-5 h-5 mr-2 text-indigo-600" />
           Cupón de Descuento
         </label>
-        
+
         {appliedCoupon ? (
           <div className="bg-green-50 border border-green-200 rounded-md p-3 flex justify-between items-center">
             <div>
@@ -182,13 +189,13 @@ export function CouponValidator({
                 {couponLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Validar'}
               </button>
             </div>
-            
+
             {couponError && (
               <p className="mt-2 text-sm text-red-600 bg-red-50 p-3 rounded-md border border-red-100">
                 {couponError}
               </p>
             )}
-            
+
             <p className="mt-2 text-xs text-gray-500">
               Ingrese un código de cupón válido
             </p>
@@ -203,7 +210,7 @@ export function CouponValidator({
             Descuento del {appliedCoupon.discount_percentage}% aplicado
           </p>
           <p className="text-green-600 mt-1">
-            Ahorro: ${((orderTotal * appliedCoupon.discount_percentage) / 100).toFixed(2)}
+            Ahorro: ${discountAmount.toFixed(2)}
           </p>
         </div>
       )}

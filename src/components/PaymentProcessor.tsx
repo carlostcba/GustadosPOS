@@ -44,6 +44,7 @@ export function PaymentProcessor({ order, registerId, onClose, onPaymentProcesse
   const [discountPercent, setDiscountPercent] = useState(0);
   const [loading, setLoading] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [couponResetKey, setCouponResetKey] = useState(0); // ✅ NUEVO: para resetear cupón al cambiar el método de pago
   
   // Verificar que order exista antes de acceder a sus propiedades
   // Para pedidos anticipados con estado 'pending', permitimos cambiar el monto de la seña
@@ -98,26 +99,28 @@ const baseAmount = order ? (
       : order.total_amount
 ) : 0;
 
-// Calcular el monto elegible para descuento (placeholder: monto total actual)
-const eligibleAmountForDiscount = baseAmount;
+// Calcular el monto sobre el cual aplicar el descuento según el escenario
+let discountableAmount = 0;
 
-// Calcular cuánto se paga en efectivo del monto elegible
-const cashPortion = selectedPaymentMethod === 'cash'
-  ? isPayingDeposit
-    ? depositAmount
-    : isPayingRemaining
-      ? cashPaidBefore + (order.remaining_amount || 0)
-      : eligibleAmountForDiscount
-  : 0;
+if (isPayingRemaining) {
+  if (cashPaidBefore > 0 && selectedPaymentMethod !== 'cash') {
+    // Seña fue en efectivo, saldo ahora con tarjeta => aplicar sobre la seña
+    discountableAmount = cashPaidBefore;
+  } else if (selectedPaymentMethod === 'cash') {
+    // Saldo ahora en efectivo => aplicar sobre todo el efectivo (anterior + actual)
+    discountableAmount = cashPaidBefore + (order!.remaining_amount || 0);
+  }
+} else if (isPayingDeposit && selectedPaymentMethod === 'cash') {
+  // Seña en efectivo
+  discountableAmount = depositAmount;
+} else if (!order?.is_preorder && selectedPaymentMethod === 'cash') {
+  // Pedido común en efectivo
+  discountableAmount = order!.total_amount;
+}
 
-// Calcular descuento solo sobre efectivo
-const discountAmount = (cashPortion * discountPercent) / 100;
-
-// Total con descuento aplicado (no restamos seña aquí)
-const discountedTotal = baseAmount - discountAmount;
-
-// Total final a cobrar
-const finalAmount = discountedTotal;
+const discountAmount = (discountableAmount * discountPercent) / 100;
+const totalWithDiscount = order!.total_amount - discountAmount;
+const finalAmount = totalWithDiscount - order!.deposit_amount;
 
 
   // Determinar el tipo de pago para mostrar en la confirmación
@@ -159,8 +162,8 @@ const finalAmount = discountedTotal;
     });
 
     try {
-      // Verificar que si hay descuento, el método de pago sea efectivo
-      if (discountPercent > 0 && selectedPaymentMethod !== 'cash') {
+      // ⚠️ Solo bloqueamos si no hubo efectivo en ningún momento
+      if (discountPercent > 0 && selectedPaymentMethod !== 'cash' && cashPaidBefore === 0) {
         throw new Error('Los descuentos solo aplican a pagos en efectivo');
       }
 
@@ -390,6 +393,11 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
               <p className="font-medium">
                 Total: ${order.total_amount.toFixed(2)}
               </p>
+              {discountPercent > 0 && (
+              <p className="text-sm text-green-600 font-medium">
+                Total con descuento: ${(order.total_amount - discountAmount).toFixed(2)}
+              </p>
+              )}
               {order.is_preorder && (
                 <>
                   {order.status === 'pending' ? (
@@ -402,7 +410,8 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
                   ) : (
                     <>
                       <p className="text-sm text-gray-500">
-                        Seña pagada: ${order.deposit_amount.toFixed(2)}
+                        Seña pagada: ${order.deposit_amount.toFixed(2)} (
+                        {cashPaidBefore >= order.deposit_amount ? 'efectivo' : 'tarjeta'})
                       </p>
                       <p className="text-sm text-gray-500">
                         Restante: ${order.remaining_amount.toFixed(2)}
@@ -427,7 +436,10 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
                   name="paymentMethod" 
                   value="cash" 
                   checked={selectedPaymentMethod === 'cash'} 
-                  onChange={() => setSelectedPaymentMethod('cash')}
+                  onChange={() => {
+                    setSelectedPaymentMethod('cash');
+                    setCouponResetKey((prev) => prev + 1);
+                  }}
                   className="sr-only"
                 />
                 <Banknote className="h-5 w-5 text-gray-600 mb-1" />
@@ -440,7 +452,10 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
                   name="paymentMethod" 
                   value="credit" 
                   checked={selectedPaymentMethod === 'credit'} 
-                  onChange={() => setSelectedPaymentMethod('credit')}
+                  onChange={() => {
+                    setSelectedPaymentMethod('credit');
+                    setCouponResetKey((prev) => prev + 1);
+                  }}                  
                   className="sr-only"
                 />
                 <CreditCard className="h-5 w-5 text-gray-600 mb-1" />
@@ -453,7 +468,10 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
                   name="paymentMethod" 
                   value="transfer" 
                   checked={selectedPaymentMethod === 'transfer'} 
-                  onChange={() => setSelectedPaymentMethod('transfer')}
+                  onChange={() => {
+                    setSelectedPaymentMethod('transfer');
+                    setCouponResetKey((prev) => prev + 1);
+                  }}                  
                   className="sr-only"
                 />
                 <ArrowRight className="h-5 w-5 text-gray-600 mb-1" />
@@ -462,14 +480,16 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
             </div>
           </div>
 
-          {/* Only show coupon section for regular orders or when paying the remaining balance */}
+          {/* Mostrar la sección de cupones solo para pedidos regulares o al pagar el saldo restante */}
           {(!order.is_preorder || order.status !== 'pending') && (
             <div className="p-4 border-b border-gray-200">
-              <CouponValidator 
+              <CouponValidator
                 orderTotal={baseAmount}
-                isPreorder={order.is_preorder}
-                onDiscountApplied={handleDiscountApplied}
                 selectedPaymentMethod={selectedPaymentMethod}
+                onDiscountApplied={handleDiscountApplied}
+                prepaidCashExists={cashPaidBefore > 0}
+                discountAmount={discountAmount}
+                resetTrigger={couponResetKey}
               />
             </div>
           )}
