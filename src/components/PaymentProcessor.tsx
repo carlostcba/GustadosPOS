@@ -230,19 +230,27 @@ const finalAmount = discountedTotal;
       const newStatus = order.is_preorder ? 
         order.status === 'pending' ? 'processing' : 'paid' : 'paid';
       
-      // Si hay descuento, actualizar el monto total de la orden
-      let updateOrderData: Record<string, any> = {
-        status: newStatus,
-        cashier_id: user.id,
-        payment_method: selectedPaymentMethod,
-        last_payment_date: new Date().toISOString()
-      };
-      
-      // Si hay descuento, actualizar los montos de la orden
-      if (discountPercent > 0) {
-        updateOrderData.discount_percentage = discountPercent;
-        updateOrderData.discount_total = discountAmount;
-      }      
+      // Datos base para actualizar la orden
+let updateOrderData: Record<string, any> = {
+  status: newStatus,
+  cashier_id: user.id,
+  payment_method: selectedPaymentMethod,
+  last_payment_date: new Date().toISOString()
+};
+
+// Si hay descuento, guardar el porcentaje, el total descontado y el total final con descuento
+if (discountPercent > 0) {
+  updateOrderData.discount_percentage = discountPercent;
+  updateOrderData.discount_total = discountAmount;
+  updateOrderData.total_amount_with_discount = order.total_amount - discountAmount;
+}
+
+// Si es seña, también actualizamos deposit y remaining
+if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
+  updateOrderData.deposit_amount = depositAmount;
+  updateOrderData.remaining_amount = order.total_amount - depositAmount;
+}
+     
         
       const { error: orderError } = await supabase
         .from('orders')
