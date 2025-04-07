@@ -20,6 +20,7 @@ type Order = {
   order_type: 'regular' | 'pre_order' | 'delivery';
   seller_id: string;
   payment_method: 'cash' | 'credit' | 'transfer' | null;
+  total_amount_with_discount?: number | null; // 👈 Agregá esta línea
 };
 
 type UserProfile = {
@@ -341,6 +342,15 @@ export function OrderList() {
                 <p className="text-lg font-medium text-gray-900">
                   ${order.total_amount.toFixed(2)}
                 </p>
+
+                {typeof order.total_amount_with_discount === 'number' &&
+                  order.total_amount_with_discount < order.total_amount && (
+                  <p className="text-sm text-green-700">
+                    Con descuentos: ${order.total_amount_with_discount.toFixed(2)}
+                  </p>
+                )}
+
+
                 {order.is_preorder && order.status !== 'paid' && (
                   <p className="mt-1 text-sm text-gray-500">
                     Seña: ${order.deposit_amount.toFixed(2)}
@@ -349,6 +359,7 @@ export function OrderList() {
                   </p>
                 )}
               </div>
+
 
               {/* Action Buttons - 3 columns */}
               <div className="col-span-3 flex justify-end space-x-2">

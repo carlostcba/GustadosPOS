@@ -120,7 +120,11 @@ if (isPayingRemaining) {
 
 const discountAmount = (discountableAmount * discountPercent) / 100;
 const totalWithDiscount = order!.total_amount - discountAmount;
-const finalAmount = totalWithDiscount - order!.deposit_amount;
+const finalAmount = isPayingDeposit
+  ? Math.max(0, depositAmount - discountAmount) // seña anticipada
+  : isPayingRemaining
+    ? Math.max(0, order!.remaining_amount - (selectedPaymentMethod === 'cash' ? discountAmount : 0)) // saldo restante
+    : Math.max(0, totalWithDiscount); // pedido común
 
 
   // Determinar el tipo de pago para mostrar en la confirmación
@@ -481,13 +485,13 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
           </div>
 
           {/* Mostrar la sección de cupones solo para pedidos regulares o al pagar el saldo restante */}
-          {(!order.is_preorder || order.status !== 'pending') && (
+          {(!order.is_preorder || order.status !== 'pending' || (order.status === 'pending' && depositAmount === order.total_amount)) && (
             <div className="p-4 border-b border-gray-200">
               <CouponValidator
                 orderTotal={baseAmount}
                 selectedPaymentMethod={selectedPaymentMethod}
                 onDiscountApplied={handleDiscountApplied}
-                prepaidCashExists={cashPaidBefore > 0}
+                prepaidCashExists={!!(cashPaidBefore > 0 || (isPayingDeposit && selectedPaymentMethod === 'cash'))}
                 discountAmount={discountAmount}
                 resetTrigger={couponResetKey}
               />
