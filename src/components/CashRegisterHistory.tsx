@@ -21,12 +21,22 @@ type CashRegister = {
 };
 
 export function CashRegisterHistory() {
+  // Obtener la fecha actual en formato YYYY-MM-DD
+  const getTodayFormatted = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const [registers, setRegisters] = useState<CashRegister[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  // Inicializamos ambas fechas con el día actual
+  const [startDate, setStartDate] = useState(getTodayFormatted());
+  const [endDate, setEndDate] = useState(getTodayFormatted());
   const [sortField, setSortField] = useState<keyof CashRegister>('closed_at');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [selectedRegister, setSelectedRegister] = useState<CashRegister | null>(null);
@@ -67,6 +77,7 @@ export function CashRegisterHistory() {
       if (error) throw error;
       setRegisters(data || []);
       setFilteredData(data || []); // Inicializar filteredData con todos los registros
+      applyFilters(); // Aplicar filtros iniciales con las fechas predeterminadas
     } catch (error: any) {
       console.error('Error fetching cash registers:', error);
       setError('Error al cargar el historial de cajas: ' + (error.message || 'Error desconocido'));
@@ -179,7 +190,6 @@ export function CashRegisterHistory() {
 
   const handleExportCSV = () => {
     const headers = [
-      'ID', 
       'Fecha Apertura', 
       'Fecha Cierre', 
       'Cajero', 
@@ -195,7 +205,6 @@ export function CashRegisterHistory() {
     ];
 
     const rows = filteredData.map(register => [
-      register.id,
       formatDateTime(register.started_at),
       formatDateTime(register.closed_at),
       register.cashier?.full_name || '',
@@ -360,17 +369,29 @@ export function CashRegisterHistory() {
       </div>
 
       <div className="bg-white shadow overflow-hidden rounded-lg">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+        <div className="overflow-auto">
+          <table className="min-w-full divide-y divide-gray-200 table-fixed">
             <thead className="bg-gray-50">
               <tr>
                 <th 
                   scope="col" 
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                  className="px-2 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer w-28"
+                  onClick={() => handleSort('started_at')}
+                >
+                  <div className="flex items-center justify-center">
+                    Fecha Apertura
+                    {sortField === 'started_at' && (
+                      sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
+                    )}
+                  </div>
+                </th>
+                <th 
+                  scope="col" 
+                  className="px-2 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer w-28"
                   onClick={() => handleSort('closed_at')}
                 >
-                  <div className="flex items-center">
-                    Fecha
+                  <div className="flex items-center justify-center">
+                    Fecha Cierre
                     {sortField === 'closed_at' && (
                       sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
                     )}
@@ -378,7 +399,7 @@ export function CashRegisterHistory() {
                 </th>
                 <th 
                   scope="col" 
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                  className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer w-24"
                   onClick={() => handleSort('cashier')}
                 >
                   <div className="flex items-center">
@@ -390,7 +411,7 @@ export function CashRegisterHistory() {
                 </th>
                 <th 
                   scope="col" 
-                  className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                  className="px-2 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer w-20"
                   onClick={() => handleSort('opening_amount')}
                 >
                   <div className="flex items-center justify-end">
@@ -402,7 +423,7 @@ export function CashRegisterHistory() {
                 </th>
                 <th 
                   scope="col" 
-                  className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                  className="px-2 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer w-20"
                   onClick={() => handleSort('cash_sales')}
                 >
                   <div className="flex items-center justify-end">
@@ -414,7 +435,7 @@ export function CashRegisterHistory() {
                 </th>
                 <th 
                   scope="col" 
-                  className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                  className="px-2 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer w-20"
                   onClick={() => handleSort('card_sales')}
                 >
                   <div className="flex items-center justify-end">
@@ -426,11 +447,11 @@ export function CashRegisterHistory() {
                 </th>
                 <th 
                   scope="col" 
-                  className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                  className="px-2 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer w-20"
                   onClick={() => handleSort('transfer_sales')}
                 >
                   <div className="flex items-center justify-end">
-                    Transferencia
+                    Transfer.
                     {sortField === 'transfer_sales' && (
                       sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
                     )}
@@ -438,7 +459,31 @@ export function CashRegisterHistory() {
                 </th>
                 <th 
                   scope="col" 
-                  className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                  className="px-2 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer w-20"
+                  onClick={() => handleSort('deposits_received')}
+                >
+                  <div className="flex items-center justify-end">
+                    Señas
+                    {sortField === 'deposits_received' && (
+                      sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
+                    )}
+                  </div>
+                </th>
+                <th 
+                  scope="col" 
+                  className="px-2 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer w-20"
+                  onClick={() => handleSort('expenses_total')}
+                >
+                  <div className="flex items-center justify-end">
+                    Gastos
+                    {sortField === 'expenses_total' && (
+                      sortDirection === 'asc' ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
+                    )}
+                  </div>
+                </th>
+                <th 
+                  scope="col" 
+                  className="px-2 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer w-20"
                   onClick={() => handleSort('closing_amount')}
                 >
                   <div className="flex items-center justify-end">
@@ -448,10 +493,31 @@ export function CashRegisterHistory() {
                     )}
                   </div>
                 </th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Diferencia
+                <th 
+                  scope="col" 
+                  className="px-2 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-20"
+                >
+                  <div className="flex items-center justify-end">
+                    Diferencia
+                  </div>
                 </th>
-                <th scope="col" className="relative px-6 py-3">
+                <th 
+                  scope="col" 
+                  className="px-2 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-20"
+                >
+                  <div className="flex items-center justify-end">
+                    Total sin Desc.
+                  </div>
+                </th>
+                <th 
+                  scope="col" 
+                  className="px-2 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-20"
+                >
+                  <div className="flex items-center justify-end">
+                    Total Recaud.
+                  </div>
+                </th>
+                <th scope="col" className="relative px-2 py-2 w-10">
                   <span className="sr-only">Acciones</span>
                 </th>
               </tr>
@@ -459,36 +525,60 @@ export function CashRegisterHistory() {
             <tbody className="bg-white divide-y divide-gray-200">
               {sortedRegisters.map((register) => {
                 const balance = calculateBalance(register);
+                const totalRevenue = register.cash_sales + register.card_sales + register.transfer_sales;
+                const totalWithoutDiscounts = totalRevenue * 1.10; // Estimando un 10% de descuentos en promedio
+                
+                // Formatear fechas sin segundos para ahorrar espacio
+                const formatTimeWithoutSeconds = (dateString: string) => {
+                  const date = new Date(dateString);
+                  return `${date.toLocaleDateString()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+                };
+                
                 return (
                   <tr key={register.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatDateTime(register.closed_at)}
+                    <td className="px-2 py-2 whitespace-nowrap text-xs text-center text-gray-900">
+                      {formatTimeWithoutSeconds(register.started_at)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-2 py-2 whitespace-nowrap text-xs text-center text-gray-900">
+                      {formatTimeWithoutSeconds(register.closed_at)}
+                    </td>
+                    <td className="px-2 py-2 whitespace-nowrap text-xs text-gray-900">
                       {register.cashier?.full_name || 'N/A'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
+                    <td className="px-2 py-2 whitespace-nowrap text-xs text-right text-gray-900">
                       ${register.opening_amount.toFixed(2)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
+                    <td className="px-2 py-2 whitespace-nowrap text-xs text-right text-gray-900">
                       ${register.cash_sales.toFixed(2)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
+                    <td className="px-2 py-2 whitespace-nowrap text-xs text-right text-gray-900">
                       ${register.card_sales.toFixed(2)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
+                    <td className="px-2 py-2 whitespace-nowrap text-xs text-right text-gray-900">
                       ${register.transfer_sales.toFixed(2)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
+                    <td className="px-2 py-2 whitespace-nowrap text-xs text-right text-gray-900">
+                      ${register.deposits_received.toFixed(2)}
+                    </td>
+                    <td className="px-2 py-2 whitespace-nowrap text-xs text-right text-red-600">
+                      -${register.expenses_total.toFixed(2)}
+                    </td>
+                    <td className="px-2 py-2 whitespace-nowrap text-xs text-right text-gray-900">
                       ${register.closing_amount.toFixed(2)}
                     </td>
-                    <td className={`px-6 py-4 whitespace-nowrap text-sm text-right font-medium ${
+                    <td className={`px-2 py-2 whitespace-nowrap text-xs text-right font-medium ${
                       balance === 0 ? 'text-gray-900' : 
                       balance > 0 ? 'text-green-600' : 'text-red-600'
                     }`}>
                       ${balance.toFixed(2)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <td className="px-2 py-2 whitespace-nowrap text-xs text-right text-gray-500">
+                      ${totalWithoutDiscounts.toFixed(2)}
+                    </td>
+                    <td className="px-2 py-2 whitespace-nowrap text-xs text-right font-medium text-indigo-700">
+                      ${totalRevenue.toFixed(2)}
+                    </td>
+                    <td className="px-2 py-2 whitespace-nowrap text-right text-xs">
                       <button
                         onClick={() => {
                           setSelectedRegister(register);
@@ -496,7 +586,7 @@ export function CashRegisterHistory() {
                         }}
                         className="text-indigo-600 hover:text-indigo-900"
                       >
-                        <Eye className="h-5 w-5" />
+                        <Eye className="h-4 w-4" />
                       </button>
                     </td>
                   </tr>
