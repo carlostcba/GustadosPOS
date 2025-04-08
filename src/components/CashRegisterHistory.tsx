@@ -31,10 +31,20 @@ export function CashRegisterHistory() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [selectedRegister, setSelectedRegister] = useState<CashRegister | null>(null);
   const [showReport, setShowReport] = useState(false);
+  
+  // Estado para registros filtrados
+  const [filteredData, setFilteredData] = useState<CashRegister[]>([]);
 
   useEffect(() => {
     fetchCashRegisters();
   }, []);
+
+  // Efecto dedicado al filtrado de datos
+  useEffect(() => {
+    if (registers.length > 0) {
+      applyFilters();
+    }
+  }, [registers, startDate, endDate, searchQuery]);
 
   async function fetchCashRegisters() {
     try {
@@ -56,6 +66,7 @@ export function CashRegisterHistory() {
 
       if (error) throw error;
       setRegisters(data || []);
+      setFilteredData(data || []); // Inicializar filteredData con todos los registros
     } catch (error: any) {
       console.error('Error fetching cash registers:', error);
       setError('Error al cargar el historial de cajas: ' + (error.message || 'Error desconocido'));
@@ -64,28 +75,62 @@ export function CashRegisterHistory() {
     }
   }
 
-  // Filtrar registros según los criterios de búsqueda
-  const filteredRegisters = registers.filter(register => {
-    const cashierName = register.cashier?.full_name?.toLowerCase() || '';
-    const registerDate = new Date(register.closed_at).toLocaleDateString();
-    const searchLower = searchQuery.toLowerCase();
-
-    const matchesSearch = !searchQuery || 
-      cashierName.includes(searchLower) || 
-      registerDate.includes(searchLower);
-
-    // Filtrar por rango de fechas si están establecidas
-    const closedDate = new Date(register.closed_at);
-    const matchesStartDate = !startDate || closedDate >= new Date(startDate);
-    const endDateObj = endDate ? new Date(endDate) : null;
-    if (endDateObj) endDateObj.setHours(23, 59, 59); // Establecer al final del día
-    const matchesEndDate = !endDate || closedDate <= (endDateObj || new Date());
-
-    return matchesSearch && matchesStartDate && matchesEndDate;
-  });
+  // Función específica para aplicar filtros
+  function applyFilters() {
+    // Filtramos por texto de búsqueda
+    let filtered = [...registers];
+    
+    if (searchQuery) {
+      const searchLower = searchQuery.toLowerCase();
+      filtered = filtered.filter(register => {
+        const cashierName = register.cashier?.full_name?.toLowerCase() || '';
+        const registerDate = new Date(register.closed_at).toLocaleDateString();
+        return cashierName.includes(searchLower) || registerDate.includes(searchLower);
+      });
+    }
+    
+    // Filtramos por fecha de inicio
+    if (startDate) {
+      // Convertimos a formato yyyy-MM-dd para normalizar
+      const parts = startDate.split('-');
+      // Creamos fecha a las 00:00:00 del día (inicio del día)
+      const startDateObj = new Date(
+        parseInt(parts[0]), 
+        parseInt(parts[1]) - 1, // Meses son base 0 en JavaScript (0-11)
+        parseInt(parts[2])
+      );
+      startDateObj.setHours(0, 0, 0, 0);
+      
+      filtered = filtered.filter(register => {
+        const closedDate = new Date(register.closed_at);
+        return closedDate >= startDateObj;
+      });
+    }
+    
+    // Filtramos por fecha de fin
+    if (endDate) {
+      // Convertimos a formato yyyy-MM-dd para normalizar
+      const parts = endDate.split('-');
+      // Creamos fecha a las 23:59:59 del día (fin del día)
+      const endDateObj = new Date(
+        parseInt(parts[0]), 
+        parseInt(parts[1]) - 1, // Meses son base 0 en JavaScript (0-11)
+        parseInt(parts[2])
+      );
+      endDateObj.setHours(23, 59, 59, 999);
+      
+      filtered = filtered.filter(register => {
+        const closedDate = new Date(register.closed_at);
+        return closedDate <= endDateObj;
+      });
+    }
+    
+    // Actualizamos el estado con los resultados filtrados
+    setFilteredData(filtered);
+  }
 
   // Ordenar registros
-  const sortedRegisters = [...filteredRegisters].sort((a, b) => {
+  const sortedRegisters = [...filteredData].sort((a, b) => {
     let fieldA: any = a[sortField];
     let fieldB: any = b[sortField];
 
@@ -116,7 +161,7 @@ export function CashRegisterHistory() {
   };
 
   const calculateTotal = (field: 'cash_sales' | 'card_sales' | 'transfer_sales' | 'expenses_total' | 'deposits_received') => {
-    return filteredRegisters.reduce((sum, register) => sum + (register[field] || 0), 0);
+    return filteredData.reduce((sum, register) => sum + (register[field] || 0), 0);
   };
 
   const calculateBalance = (register: CashRegister) => {
@@ -149,7 +194,7 @@ export function CashRegisterHistory() {
       'Diferencia'
     ];
 
-    const rows = filteredRegisters.map(register => [
+    const rows = filteredData.map(register => [
       register.id,
       formatDateTime(register.started_at),
       formatDateTime(register.closed_at),
@@ -179,6 +224,14 @@ export function CashRegisterHistory() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Función para limpiar filtros
+  const clearFilters = () => {
+    setStartDate('');
+    setEndDate('');
+    setSearchQuery('');
+    setFilteredData(registers); // Resetear a todos los registros
   };
 
   if (loading) {
@@ -263,8 +316,20 @@ export function CashRegisterHistory() {
           </div>
         </div>
 
+        {/* Botón para limpiar filtros */}
+        {(startDate || endDate || searchQuery) && (
+          <div className="flex justify-end">
+            <button
+              onClick={clearFilters}
+              className="inline-flex items-center px-3 py-1 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            >
+              Limpiar filtros
+            </button>
+          </div>
+        )}
+
         <div className="bg-indigo-50 p-4 rounded-lg">
-          <h3 className="font-medium text-indigo-700 mb-2">Resumen del Período</h3>
+          <h3 className="font-medium text-indigo-700 mb-2">Resumen del Período (Filtrado)</h3>
           <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
             <div>
               <div className="text-sm text-gray-500">Ventas en Efectivo</div>
