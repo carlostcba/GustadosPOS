@@ -189,7 +189,7 @@ export function CashRegisterHistory() {
   };
 
   const handleExportCSV = () => {
-    const headers = [
+    const headers = [ 
       'Fecha Apertura', 
       'Fecha Cierre', 
       'Cajero', 
@@ -204,7 +204,7 @@ export function CashRegisterHistory() {
       'Diferencia'
     ];
 
-    const rows = filteredData.map(register => [
+    const rows = filteredData.map(register => [,
       formatDateTime(register.started_at),
       formatDateTime(register.closed_at),
       register.cashier?.full_name || '',
@@ -506,14 +506,6 @@ export function CashRegisterHistory() {
                   className="px-2 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-20"
                 >
                   <div className="flex items-center justify-end">
-                    Total sin Desc.
-                  </div>
-                </th>
-                <th 
-                  scope="col" 
-                  className="px-2 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-20"
-                >
-                  <div className="flex items-center justify-end">
                     Total Recaud.
                   </div>
                 </th>
@@ -526,7 +518,7 @@ export function CashRegisterHistory() {
               {sortedRegisters.map((register) => {
                 const balance = calculateBalance(register);
                 const totalRevenue = register.cash_sales + register.card_sales + register.transfer_sales;
-                const totalWithoutDiscounts = totalRevenue * 1.10; // Estimando un 10% de descuentos en promedio
+                //const totalWithoutDiscounts = totalRevenue * 1.10; // Estimando un 10% de descuentos en promedio
                 
                 // Formatear fechas sin segundos para ahorrar espacio
                 const formatTimeWithoutSeconds = (dateString: string) => {
@@ -571,9 +563,6 @@ export function CashRegisterHistory() {
                       balance > 0 ? 'text-green-600' : 'text-red-600'
                     }`}>
                       ${balance.toFixed(2)}
-                    </td>
-                    <td className="px-2 py-2 whitespace-nowrap text-xs text-right text-gray-500">
-                      ${totalWithoutDiscounts.toFixed(2)}
                     </td>
                     <td className="px-2 py-2 whitespace-nowrap text-xs text-right font-medium text-indigo-700">
                       ${totalRevenue.toFixed(2)}
