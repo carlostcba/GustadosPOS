@@ -1,0 +1,27 @@
+# Dependency directories
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Build output
+dist
+dist-ssr
+
+# Environment files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Version control
+.git
+.gitignore
+
+# IDE and editor files
+.vscode
+.idea
+*.swp
+*.swo
+
+# Misc
+.DS_Store
