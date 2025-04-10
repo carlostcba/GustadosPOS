@@ -10,7 +10,9 @@ import {
   PlusCircle,
   MinusCircle,
   Receipt,
-  Search
+  Search,
+  AlertTriangle,
+  Check
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { OrderDetails } from './OrderDetails';
@@ -60,6 +62,9 @@ export function CashierDashboard() {
   const [showPaymentMenu, setShowPaymentMenu] = useState<string | null>(null);
   const [orderFilter, setOrderFilter] = useState<'all' | 'regular' | 'preorder'>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [showOpenForm, setShowOpenForm] = useState(false);
+  const [closingAmount, setClosingAmount] = useState<number>(0);
+  const [showConfirmation, setShowConfirmation] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -190,13 +195,14 @@ export function CashierDashboard() {
 
       if (error) throw error;
       setActiveRegister(data);
+      setShowOpenForm(false);
     } catch (error: any) {
       console.error('Error starting cash register:', error);
       setError('Error al abrir la caja. Por favor intente nuevamente.');
     }
   }
 
-  async function closeRegister(closingAmount: number) {
+  async function closeRegister(amount: number) {
     if (!user || !activeRegister) return;
     setError(null);
 
@@ -205,7 +211,7 @@ export function CashierDashboard() {
       const { data, error } = await supabase
         .from('cash_registers')
         .update({
-          closing_amount: closingAmount,
+          closing_amount: amount,
           closed_at: closeTime
         })
         .eq('id', activeRegister.id)
@@ -217,13 +223,14 @@ export function CashierDashboard() {
       // Create a CashRegister object with closing_amount as a number
       const closedRegisterData: CashRegister = {
         ...activeRegister,
-        closing_amount: closingAmount,
+        closing_amount: amount,
         closed_at: closeTime
       };
 
       setClosedRegister(closedRegisterData);
       setShowReport(true);
       setIsClosing(false);
+      setShowConfirmation(false);
       setActiveRegister(null);
     } catch (error: any) {
       console.error('Error closing register:', error);
@@ -249,6 +256,41 @@ export function CashierDashboard() {
     await Promise.all([fetchOrders(), fetchActiveRegister()]);
   };
 
+  // Handle closing the report and showing the open form
+  const handleReportClosed = () => {
+    setShowReport(false);
+    setClosedRegister(null);
+    setShowOpenForm(true);
+  };
+
+  // Validate closing amount and show confirmation
+  const handleValidateClosing = (e: React.FormEvent) => {
+    e.preventDefault();
+    const form = e.target as HTMLFormElement;
+    const amount = parseFloat(form.amount.value);
+    
+    // Debug logs
+    console.log("Formulario enviado, valor:", form.amount.value);
+    
+    if (isNaN(amount) || amount < 0) {
+      setError('El monto de cierre debe ser un número válido mayor o igual a 0');
+      return;
+    }
+    
+    setClosingAmount(amount);
+    setShowConfirmation(true);
+    
+    // Debug logs
+    console.log("showConfirmation establecido a:", true);
+    console.log("closingAmount establecido a:", amount);
+  };
+
+  // Calculate difference between expected and actual closing amount
+  const calculateDifference = () => {
+    const expectedAmount = calculateTotalInRegister();
+    return closingAmount - expectedAmount;
+  };
+  
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -258,7 +300,21 @@ export function CashierDashboard() {
     );
   }
 
-  if (!activeRegister) {
+  // Mostrar reporte de cierre cuando corresponda
+  if (showReport && closedRegister) {
+    return (
+      <CashRegisterReport
+        register={{
+          ...closedRegister,
+          closing_amount: closedRegister.closing_amount || 0
+        }}
+        onClose={handleReportClosed}
+      />
+    );
+  }
+
+  // Mostrar formulario de apertura cuando no hay caja activa
+  if (!activeRegister || showOpenForm) {
     return (
       <div className="max-w-md mx-auto mt-10">
         <div className="bg-white shadow-sm rounded-lg p-6">
@@ -313,92 +369,7 @@ export function CashierDashboard() {
     );
   }
 
-  if (isClosing) {
-    return (
-      <div className="max-w-md mx-auto mt-10">
-        <div className="bg-white shadow-sm rounded-lg p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">
-            Cerrar Caja
-          </h2>
-          {error && (
-            <div className="mb-4 p-3 rounded bg-red-50 text-red-700 text-sm">
-              {error}
-            </div>
-          )}
-          <div className="mb-6 space-y-2">
-            <p className="text-sm text-gray-600 font-medium">Resumen de Caja:</p>
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div>Monto Inicial:</div>
-              <div className="text-right">${activeRegister.opening_amount.toFixed(2)}</div>
-              <div>Ventas en Efectivo:</div>
-              <div className="text-right">${activeRegister.cash_sales.toFixed(2)}</div>
-              <div>Ventas con Tarjeta:</div>
-              <div className="text-right">${activeRegister.card_sales.toFixed(2)}</div>
-              <div>Ventas por Transferencia:</div>
-              <div className="text-right">${activeRegister.transfer_sales.toFixed(2)}</div>
-              <div>Señas Recibidas:</div>
-              <div className="text-right">${activeRegister.deposits_received.toFixed(2)}</div>
-              <div>Egresos:</div>
-              <div className="text-right text-red-600">-${activeRegister.expenses_total.toFixed(2)}</div>
-              <div className="font-medium pt-2 border-t mt-2">Total Esperado:</div>
-              <div className="text-right font-medium pt-2 border-t mt-2">
-                ${calculateTotalInRegister().toFixed(2)}
-              </div>
-            </div>
-          </div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const amount = parseFloat(
-                (e.target as HTMLFormElement).amount.value
-              );
-              if (amount >= 0) {
-                closeRegister(amount);
-              }
-            }}
-            className="space-y-4"
-          >
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Monto de Cierre (Efectivo en Caja)
-              </label>
-              <div className="mt-1 relative rounded-md shadow-sm">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <span className="text-gray-500 sm:text-sm">$</span>
-                </div>
-                <input
-                  type="number"
-                  name="amount"
-                  min="0"
-                  step="0.01"
-                  required
-                  defaultValue={calculateTotalInRegister().toFixed(2)}
-                  className="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-7 pr-12 sm:text-sm border-gray-300 rounded-md"
-                  placeholder="0.00"
-                />
-              </div>
-            </div>
-            <div className="flex space-x-4">
-              <button
-                type="button"
-                onClick={() => setIsClosing(false)}
-                className="flex-1 py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-              >
-                Cerrar Caja
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
+  // Renderiza el componente principal incluyendo todas las vistas modales
   return (
     <div className="space-y-6">
       {error && (
@@ -410,6 +381,159 @@ export function CashierDashboard() {
           >
             Cerrar
           </button>
+        </div>
+      )}
+      
+      {/* Panel de cierre de caja */}
+      {isClosing && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h2 className="text-lg font-medium text-gray-900 mb-4">
+              Cerrar Caja
+            </h2>
+            {error && (
+              <div className="mb-4 p-3 rounded bg-red-50 text-red-700 text-sm">
+                {error}
+              </div>
+            )}
+            <div className="mb-6 space-y-2">
+              <p className="text-sm text-gray-600 font-medium">Resumen de Caja:</p>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>Monto Inicial:</div>
+                <div className="text-right">${activeRegister.opening_amount.toFixed(2)}</div>
+                <div>Ventas en Efectivo:</div>
+                <div className="text-right">${activeRegister.cash_sales.toFixed(2)}</div>
+                <div>Ventas con Tarjeta:</div>
+                <div className="text-right">${activeRegister.card_sales.toFixed(2)}</div>
+                <div>Ventas por Transferencia:</div>
+                <div className="text-right">${activeRegister.transfer_sales.toFixed(2)}</div>
+                <div>Señas Recibidas:</div>
+                <div className="text-right">${activeRegister.deposits_received.toFixed(2)}</div>
+                <div>Egresos:</div>
+                <div className="text-right text-red-600">-${activeRegister.expenses_total.toFixed(2)}</div>
+                <div className="font-medium pt-2 border-t mt-2">Total Esperado:</div>
+                <div className="text-right font-medium pt-2 border-t mt-2">
+                  ${calculateTotalInRegister().toFixed(2)}
+                </div>
+              </div>
+            </div>
+            <form
+              onSubmit={handleValidateClosing}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Monto de Cierre (Efectivo en Caja)
+                </label>
+                <div className="mt-1 relative rounded-md shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span className="text-gray-500 sm:text-sm">$</span>
+                  </div>
+                  <input
+                    type="number"
+                    name="amount"
+                    min="0"
+                    step="0.01"
+                    required
+                    defaultValue={calculateTotalInRegister().toFixed(2)}
+                    className="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-7 pr-12 sm:text-sm border-gray-300 rounded-md"
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+              <div className="flex space-x-4">
+                <button
+                  type="button"
+                  onClick={() => setIsClosing(false)}
+                  className="flex-1 py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                >
+                  Verificar Cierre
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      
+      {/* Diálogo de confirmación de cierre */}
+      {showConfirmation && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-start mb-4">
+              <div className="flex-shrink-0">
+                <AlertTriangle className="h-6 w-6 text-yellow-600" />
+              </div>
+              <div className="ml-3">
+                <h3 className="text-lg font-medium text-gray-900">
+                  Confirmar Cierre de Caja
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Esta acción no tiene vuelta atrás. Verifique que el monto sea correcto.
+                </p>
+              </div>
+            </div>
+            
+            <div className="bg-yellow-50 p-4 rounded-lg mb-4">
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="font-medium">Monto Esperado:</div>
+                <div className="text-right font-medium">${calculateTotalInRegister().toFixed(2)}</div>
+                <div className="font-medium">Monto Declarado:</div>
+                <div className="text-right font-medium">${closingAmount.toFixed(2)}</div>
+                <div className="font-medium pt-2 border-t mt-2">Diferencia:</div>
+                <div className={`text-right font-medium pt-2 border-t mt-2 ${
+                  calculateDifference() === 0 ? 'text-green-600' : 
+                  calculateDifference() > 0 ? 'text-blue-600' : 'text-red-600'
+                }`}>
+                  ${calculateDifference().toFixed(2)}
+                </div>
+              </div>
+              
+              <div className="mt-4">
+                <div className={`flex items-center ${
+                  calculateDifference() === 0 ? 'text-green-700' : 
+                  calculateDifference() > 0 ? 'text-blue-700' : 'text-red-700'
+                }`}>
+                  {calculateDifference() === 0 ? (
+                    <>
+                      <Check className="h-5 w-5 mr-2" />
+                      <span>El cierre coincide con lo esperado</span>
+                    </>
+                  ) : calculateDifference() > 0 ? (
+                    <>
+                      <AlertTriangle className="h-5 w-5 mr-2" />
+                      <span>Hay un sobrante de ${calculateDifference().toFixed(2)}</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="h-5 w-5 mr-2" />
+                      <span>Hay un faltante de ${Math.abs(calculateDifference()).toFixed(2)}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-4 flex justify-end space-x-3">
+              <button
+                onClick={() => setShowConfirmation(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50"
+              >
+                Volver y Revisar
+              </button>
+              <button
+                onClick={() => closeRegister(closingAmount)}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md shadow-sm hover:bg-red-700"
+              >
+                Confirmar y Cerrar Caja
+              </button>
+            </div>
+          </div>
         </div>
       )}
       
@@ -669,19 +793,6 @@ export function CashierDashboard() {
           registerId={activeRegister.id}
           onClose={() => setShowPaymentMenu(null)}
           onPaymentProcessed={handlePaymentProcessed}
-        />
-      )}
-
-      {showReport && closedRegister && (
-        <CashRegisterReport
-          register={{
-            ...closedRegister,
-            closing_amount: closedRegister.closing_amount || 0
-          }}
-          onClose={() => {
-            setShowReport(false);
-            setClosedRegister(null);
-          }}
         />
       )}
 

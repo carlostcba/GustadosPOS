@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Printer, Download, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { Printer, Download, ChevronDown, ChevronUp, Search } from 'lucide-react';
 
 type ProductSale = {
   id: string;
@@ -11,7 +11,8 @@ type ProductSale = {
   total_price: number;
   is_weighable: boolean;
   unit_label: string;
-  payment_method: 'cash' | 'credit' | 'transfer' | null;
+  total_with_discount?: number;
+  has_discount?: boolean;
 };
 
 type CashRegisterReportProps = {
@@ -61,47 +62,9 @@ export function EnhancedCashRegisterReport({ register, onClose }: CashRegisterRe
       const endTime = register.closed_at || new Date().toISOString();
 
       console.log('Buscando órdenes entre:', startTime, 'y', endTime);
-      console.log('ID del cajero:', register.cashier?.id);
 
-      // Get all orders processed during this cash register session
-      // First try to get only paid orders
-      let { data: ordersData, error: ordersError } = await supabase
-        .from('orders')
-        .select('id, payment_method')
-        .gte('created_at', startTime)
-        .lte('created_at', endTime)
-        .eq('status', 'paid');
-
-      if (ordersError) throw ordersError;
-      
-      console.log('Órdenes pagadas encontradas:', ordersData?.length || 0);
-      
-      // If no paid orders were found, try to get all orders
-      if (!ordersData || ordersData.length === 0) {
-        const { data: allOrdersData, error: allOrdersError } = await supabase
-          .from('orders')
-          .select('id, payment_method')
-          .gte('created_at', startTime)
-          .lte('created_at', endTime);
-          
-        if (allOrdersError) throw allOrdersError;
-        console.log('Todas las órdenes (sin filtro de status):', allOrdersData?.length || 0);
-        
-        if (!allOrdersData || allOrdersData.length === 0) {
-          setProductSales([]);
-          setLoading(false);
-          return;
-        }
-        
-        // Use all orders if no paid orders were found
-        ordersData = allOrdersData;
-      }
-
-      // Get all order items for these orders
-      const orderIds = ordersData.map(order => order.id);
-      console.log('IDs de órdenes para buscar productos:', orderIds);
-      
-      let { data: orderItemsData, error: itemsError } = await supabase
+      // MÉTODO 1: Buscar directamente por órden_items usando una ventana de tiempo similar a la caja
+      const { data: directItems, error: directError } = await supabase
         .from('order_items')
         .select(`
           id,
@@ -111,93 +74,261 @@ export function EnhancedCashRegisterReport({ register, onClose }: CashRegisterRe
           unit_price,
           total_price,
           order_id,
-          products (
-            is_weighable,
-            unit_label
-          )
+          created_at
         `)
+        .gte('created_at', startTime)
+        .lte('created_at', endTime);
+        
+      if (!directError && directItems && directItems.length > 0) {
+        console.log('Encontrados items directamente por fecha:', directItems.length);
+        
+        // Obtener los order_ids de los items
+        const orderIds = [...new Set(directItems.map(item => item.order_id))];
+        
+        // Buscar información de órdenes para verificar descuentos
+        const { data: ordersInfo, error: ordersInfoError } = await supabase
+          .from('orders')
+          .select('id, discount_percentage, total_amount, total_amount_with_discount')
+          .in('id', orderIds);
+          
+        if (ordersInfoError) throw ordersInfoError;
+        
+        // Crear un map de órdenes con información de descuentos
+        const ordersMap: Record<string, { 
+          discount_percentage?: number, 
+          has_discount: boolean,
+          discount_ratio?: number // Proporción del descuento (para calcular precio con descuento)
+        }> = {};
+        
+        if (ordersInfo) {
+          ordersInfo.forEach(order => {
+            const hasDiscount = !!order.discount_percentage || 
+                               (order.total_amount_with_discount !== null && 
+                                order.total_amount_with_discount < order.total_amount);
+            
+            // Calcular la proporción del descuento si es posible
+            let discountRatio = 1; // Sin descuento por defecto
+            if (hasDiscount && order.total_amount_with_discount && order.total_amount) {
+              discountRatio = order.total_amount_with_discount / order.total_amount;
+            }
+            
+            ordersMap[order.id] = {
+              discount_percentage: order.discount_percentage,
+              has_discount: hasDiscount,
+              discount_ratio: discountRatio
+            };
+          });
+        }
+        
+        // Para cada item, buscar información adicional del producto
+        const enhancedItems = await Promise.all(
+          directItems.map(async (item) => {
+            let productInfo = { is_weighable: false, unit_label: 'un' };
+            
+            if (item.product_id) {
+              const { data: product } = await supabase
+                .from('products')
+                .select('is_weighable, unit_label')
+                .eq('id', item.product_id)
+                .single();
+                
+              if (product) {
+                productInfo = product;
+              }
+            }
+            
+            // Verificar si el pedido tiene descuento
+            const orderInfo = ordersMap[item.order_id] || { has_discount: false, discount_ratio: 1 };
+            let totalWithDiscount = item.total_price;
+            
+            if (orderInfo.has_discount && orderInfo.discount_ratio) {
+              totalWithDiscount = item.total_price * orderInfo.discount_ratio;
+            }
+            
+            return {
+              ...item,
+              is_weighable: productInfo.is_weighable,
+              unit_label: productInfo.unit_label,
+              has_discount: orderInfo.has_discount,
+              total_with_discount: totalWithDiscount
+            };
+          })
+        );
+        
+        setProductSales(enhancedItems);
+        setLoading(false);
+        return;
+      }
+        
+      // MÉTODO 2: Buscar órdenes pagadas en este período
+      const { data: ordersData, error: ordersError } = await supabase
+        .from('orders')
+        .select('id, discount_percentage, total_amount, total_amount_with_discount')
+        .gte('created_at', startTime)
+        .lte('created_at', endTime)
+        .eq('status', 'paid');
+
+      if (!ordersError && ordersData && ordersData.length > 0) {
+        console.log('Órdenes pagadas encontradas:', ordersData.length);
+        
+        // Extraer solo los IDs de órdenes para usar en la siguiente consulta
+        const orderIds = ordersData.map(order => order.id);
+        
+        // Crear un mapa para los descuentos
+        const orderDiscounts = ordersData.reduce((acc, order) => {
+          const hasDiscount = !!order.discount_percentage || 
+                             (order.total_amount_with_discount !== null && 
+                              order.total_amount_with_discount < order.total_amount);
+          
+          // Calcular la proporción del descuento si es posible
+          let discountRatio = 1; // Sin descuento por defecto
+          if (hasDiscount && order.total_amount_with_discount && order.total_amount) {
+            discountRatio = order.total_amount_with_discount / order.total_amount;
+          }
+          
+          acc[order.id] = {
+            has_discount: hasDiscount,
+            discount_ratio: discountRatio
+          };
+          return acc;
+        }, {} as Record<string, { has_discount: boolean, discount_ratio: number }>);
+        
+        await processOrders(orderIds, orderDiscounts);
+        return;
+      }
+      
+      // MÉTODO 3: Último recurso - buscar todas las órdenes en este período sin filtro de estado
+      const { data: allOrdersData, error: allOrdersError } = await supabase
+        .from('orders')
+        .select('id, discount_percentage, total_amount, total_amount_with_discount')
+        .gte('created_at', startTime)
+        .lte('created_at', endTime);
+        
+      if (!allOrdersError && allOrdersData && allOrdersData.length > 0) {
+        console.log('Todas las órdenes (sin filtro de status):', allOrdersData.length);
+        
+        // Extraer solo los IDs de órdenes para usar en la siguiente consulta
+        const orderIds = allOrdersData.map(order => order.id);
+        
+        // Crear un mapa para los descuentos
+        const orderDiscounts = allOrdersData.reduce((acc, order) => {
+          const hasDiscount = !!order.discount_percentage || 
+                             (order.total_amount_with_discount !== null && 
+                              order.total_amount_with_discount < order.total_amount);
+          
+          // Calcular la proporción del descuento si es posible
+          let discountRatio = 1; // Sin descuento por defecto
+          if (hasDiscount && order.total_amount_with_discount && order.total_amount) {
+            discountRatio = order.total_amount_with_discount / order.total_amount;
+          }
+          
+          acc[order.id] = {
+            has_discount: hasDiscount,
+            discount_ratio: discountRatio
+          };
+          return acc;
+        }, {} as Record<string, { has_discount: boolean, discount_ratio: number }>);
+        
+        await processOrders(orderIds, orderDiscounts);
+        return;
+      }
+      
+      // Si llegamos aquí, no encontramos nada
+      console.log('No se encontraron órdenes o pagos en este período');
+      setProductSales([]);
+      setLoading(false);
+    } catch (error: any) {
+      console.error('Error fetching product sales:', error);
+      setError('Error al cargar las ventas de productos: ' + (error.message || 'Error desconocido'));
+      setLoading(false);
+    }
+  }
+  
+  async function processOrders(
+    orderIds: string[], 
+    discountInfo: Record<string, { has_discount: boolean, discount_ratio: number }>
+  ) {
+    try {
+      if (orderIds.length === 0) {
+        setProductSales([]);
+        setLoading(false);
+        return;
+      }
+      
+      console.log('Buscando items para órdenes:', orderIds);
+      
+      // Obtener items de órdenes
+      const { data: orderItemsData, error: itemsError } = await supabase
+        .from('order_items')
+        .select('*')
         .in('order_id', orderIds);
 
       if (itemsError) throw itemsError;
-      console.log('Items de órdenes encontrados:', orderItemsData?.length || 0);
       
-      // If no items were found for the specific orders, try a broader search
       if (!orderItemsData || orderItemsData.length === 0) {
-        console.log('No se encontraron items, intentando una búsqueda más amplia');
-        const { data: allItemsData, error: allItemsError } = await supabase
-          .from('order_items')
-          .select(`
-            id,
-            product_id,
-            product_name,
-            quantity,
-            unit_price,
-            total_price,
-            order_id,
-            products (
-              is_weighable,
-              unit_label
-            )
-          `)
-          .gte('created_at', startTime)
-          .lte('created_at', endTime);
-          
-        if (allItemsError) throw allItemsError;
-        console.log('Todos los items encontrados (sin filtro de order_id):', allItemsData?.length || 0);
-        
-        if (!allItemsData || allItemsData.length === 0) {
-          setProductSales([]);
-          setLoading(false);
-          return;
-        }
-        
-        // Use all items if no items were found for the specific orders
-        orderItemsData = allItemsData;
+        console.log('No se encontraron items para estas órdenes');
+        setProductSales([]);
+        setLoading(false);
+        return;
       }
-
-      // Create a map of order IDs to payment methods
-      const orderPaymentMethods = ordersData.reduce((acc, order) => {
-        acc[order.id] = order.payment_method;
-        return acc;
-      }, {} as Record<string, string>);
-
-      console.log('Mapeando métodos de pago a órdenes:', Object.keys(orderPaymentMethods).length);
-
-      // Transform and combine the data
-      const sales = (orderItemsData || []).map((item: any) => {
-        // Verificar estructura del item para depuración
-        if (!item.product_name) {
-          console.log('Item sin nombre de producto:', item);
-        }
+      
+      console.log('Items encontrados:', orderItemsData.length);
+      
+      // Obtener información de productos
+      const productIds = [...new Set(orderItemsData
+        .filter(item => item.product_id)
+        .map(item => item.product_id))];
+        
+      const { data: productsData } = await supabase
+        .from('products')
+        .select('id, is_weighable, unit_label')
+        .in('id', productIds);
+        
+      // Crear mapa de productos
+      const productMap: Record<string, { is_weighable: boolean, unit_label: string }> = {};
+      if (productsData) {
+        productsData.forEach(product => {
+          productMap[product.id] = {
+            is_weighable: product.is_weighable || false,
+            unit_label: product.unit_label || 'un'
+          };
+        });
+      }
+      
+      // Transformar datos de items
+      const sales = orderItemsData.map(item => {
+        const productInfo = item.product_id ? productMap[item.product_id] : null;
+        const orderDiscount = discountInfo[item.order_id] || { has_discount: false, discount_ratio: 1 };
+        
+        // Calcular precio con descuento si aplica
+        const totalWithDiscount = orderDiscount.has_discount ? 
+                                 item.total_price * orderDiscount.discount_ratio : 
+                                 item.total_price;
         
         return {
           id: item.id,
-          product_id: item.product_id,
+          product_id: item.product_id || '',
           product_name: item.product_name || 'Producto sin nombre',
           quantity: item.quantity || 0,
           unit_price: item.unit_price || 0,
           total_price: item.total_price || 0,
-          is_weighable: item.products?.is_weighable || false,
-          unit_label: item.products?.unit_label || 'un',
-          // Usar 'cash' como default si no se puede determinar el método de pago
-          payment_method: (orderPaymentMethods[item.order_id] === 'cash' || 
-                           orderPaymentMethods[item.order_id] === 'credit' || 
-                           orderPaymentMethods[item.order_id] === 'transfer') ? 
-                           orderPaymentMethods[item.order_id] as 'cash' | 'credit' | 'transfer' : 
-                           'cash'
+          is_weighable: productInfo?.is_weighable || false,
+          unit_label: productInfo?.unit_label || 'un',
+          has_discount: orderDiscount.has_discount,
+          total_with_discount: totalWithDiscount
         };
       });
 
       setProductSales(sales);
       
       if (sales.length === 0) {
-        console.log('No se pudieron obtener ventas de productos para este período de caja.');
+        console.log('No se pudieron procesar ventas de productos para este período de caja.');
       } else {
-        console.log('Se encontraron', sales.length, 'ventas de productos');
+        console.log('Se procesaron', sales.length, 'ventas de productos');
       }
-    } catch (error: any) {
-      console.error('Error fetching product sales:', error);
-      setError('Error al cargar las ventas de productos: ' + (error.message || 'Error desconocido'));
+    } catch (error) {
+      console.error('Error procesando órdenes:', error);
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -219,18 +350,21 @@ export function EnhancedCashRegisterReport({ register, onClose }: CashRegisterRe
         total_price: 0,
         is_weighable: sale.is_weighable,
         unit_label: sale.unit_label,
-        cash_count: 0,
-        credit_count: 0,
-        transfer_count: 0
+        has_discount: false,
+        total_with_discount: 0
       };
     }
     acc[key].quantity += sale.quantity;
     acc[key].total_price += sale.total_price;
     
-    // Count by payment method
-    if (sale.payment_method === 'cash') acc[key].cash_count += sale.quantity;
-    else if (sale.payment_method === 'credit') acc[key].credit_count += sale.quantity;
-    else if (sale.payment_method === 'transfer') acc[key].transfer_count += sale.quantity;
+    // Acumular totales con descuento
+    if (sale.has_discount && sale.total_with_discount !== undefined) {
+      acc[key].has_discount = true;
+      acc[key].total_with_discount = (acc[key].total_with_discount || 0) + sale.total_with_discount;
+    } else {
+      // Si este item no tiene descuento, sumar el precio regular al total con descuento
+      acc[key].total_with_discount = (acc[key].total_with_discount || 0) + sale.total_price;
+    }
     
     return acc;
   }, {} as Record<string, any>);
@@ -260,7 +394,7 @@ export function EnhancedCashRegisterReport({ register, onClose }: CashRegisterRe
 
   const formatQuantity = (sale: any) => {
     if (!sale.is_weighable) {
-      return sale.quantity.toString();
+      return `${sale.quantity} ${sale.unit_label}`;
     }
     return sale.quantity < 1 
       ? `${(sale.quantity * 1000).toFixed(0)}g`
@@ -312,12 +446,15 @@ ${difference === 0 ? 'El cierre coincide con lo esperado' :
     if (sortedSales.length === 0) {
       reportText += "No hay ventas de productos registradas en este período.\n";
     } else {
-      reportText += `Producto | Cantidad | Efectivo | Tarjeta | Transf. | Total\n`;
-      reportText += `------------------------------------------------------------------------\n`;
+      reportText += `Producto | Cantidad | Total${'\n'}`;
+      reportText += `------------------------------------${'\n'}`;
       
       sortedSales.forEach(sale => {
-        const quantityStr = sale.is_weighable ? `${sale.quantity.toFixed(3)}kg` : `${sale.quantity}u`;
-        reportText += `${sale.product_name.padEnd(30)} | ${quantityStr.padEnd(8)} | ${sale.cash_count.toString().padEnd(8)} | ${sale.credit_count.toString().padEnd(7)} | ${sale.transfer_count.toString().padEnd(7)} | $${sale.total_price.toFixed(2)}\n`;
+        const quantityStr = formatQuantity(sale);
+        const totalStr = sale.has_discount ? 
+                       `$${sale.total_with_discount.toFixed(2)} (con desc.)` : 
+                       `$${sale.total_price.toFixed(2)}`;
+        reportText += `${sale.product_name.padEnd(30)} | ${quantityStr.padEnd(10)} | ${totalStr}\n`;
       });
     }
 
@@ -331,6 +468,12 @@ ${difference === 0 ? 'El cierre coincide con lo esperado' :
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
   };
+
+  // Calcular totales para la tabla
+  //const totalQuantity = sortedSales.reduce((acc, sale) => acc + sale.quantity, 0);
+  const totalAmount = sortedSales.reduce((acc, sale) => {
+    return acc + (sale.has_discount ? sale.total_with_discount : sale.total_price);
+  }, 0);
 
   return (
     <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
@@ -501,15 +644,6 @@ ${difference === 0 ? 'El cierre coincide con lo esperado' :
                                 )}
                               </div>
                             </th>
-                            <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                              Efectivo
-                            </th>
-                            <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                              Tarjeta
-                            </th>
-                            <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                              Transf.
-                            </th>
                             <th 
                               scope="col" 
                               className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
@@ -531,19 +665,16 @@ ${difference === 0 ? 'El cierre coincide con lo esperado' :
                                 {sale.product_name}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                                {formatQuantity(sale)} {sale.unit_label}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                                {sale.cash_count}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                                {sale.credit_count}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                                {sale.transfer_count}
+                                {formatQuantity(sale)}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                                ${sale.total_price.toFixed(2)}
+                                {sale.has_discount ? (
+                                  <span className="text-green-600">
+                                    ${sale.total_with_discount.toFixed(2)}
+                                  </span>
+                                ) : (
+                                  <span>${sale.total_price.toFixed(2)}</span>
+                                )}
                               </td>
                             </tr>
                           ))}
@@ -554,19 +685,10 @@ ${difference === 0 ? 'El cierre coincide con lo esperado' :
                               Total
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                              {sortedSales.reduce((acc: number, sale: any) => acc + sale.quantity, 0).toFixed(2)}
+                              
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                              {sortedSales.reduce((acc: number, sale: any) => acc + sale.cash_count, 0)}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                              {sortedSales.reduce((acc: number, sale: any) => acc + sale.credit_count, 0)}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                              {sortedSales.reduce((acc: number, sale: any) => acc + sale.transfer_count, 0)}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                              ${sortedSales.reduce((acc: number, sale: any) => acc + sale.total_price, 0).toFixed(2)}
+                              ${totalAmount.toFixed(2)}
                             </td>
                           </tr>
                         </tfoot>

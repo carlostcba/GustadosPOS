@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { Clock, Package, Truck, Calendar, Pencil, X, Trash2, AlertTriangle, Eye, DollarSign, CreditCard, ArrowRight } from 'lucide-react';
+import { Clock, Package, Truck, Calendar, Pencil, X, Trash2, AlertTriangle, Eye, DollarSign, CreditCard, ArrowRight, CalendarDays } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { OrderDetails } from './OrderDetails';
 
@@ -20,7 +20,7 @@ type Order = {
   order_type: 'regular' | 'pre_order' | 'delivery';
   seller_id: string;
   payment_method: 'cash' | 'credit' | 'transfer' | null;
-  total_amount_with_discount?: number | null; // 👈 Agregá esta línea
+  total_amount_with_discount?: number | null;
 };
 
 type UserProfile = {
@@ -39,6 +39,10 @@ export function OrderList() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  
+  // Filtro de fecha
+  const [dateFilter, setDateFilter] = useState<'today' | 'all' | 'custom'>('today');
+  const [customDate, setCustomDate] = useState<string>('');
   
   // Usar useRef para mantener la referencia al canal entre renderizados
   const channelRef = useRef<any>(null);
@@ -85,7 +89,7 @@ export function OrderList() {
         channelRef.current = null;
       }
     };
-  }, [profile]);
+  }, [profile, dateFilter, customDate]);
 
   async function fetchProfile() {
     try {
@@ -111,6 +115,33 @@ export function OrderList() {
         .select('*')
         .order('created_at', { ascending: false });
 
+      // Aplicar filtro de fecha
+      if (dateFilter === 'today') {
+        // Obtener fecha actual en formato ISO sin la hora
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        query = query
+          .gte('created_at', today.toISOString())
+          .lt('created_at', tomorrow.toISOString());
+          
+        console.log('Filtrando órdenes de hoy:', today.toISOString(), 'hasta', tomorrow.toISOString());
+      } else if (dateFilter === 'custom' && customDate) {
+        // Fecha personalizada
+        const selectedDate = new Date(customDate);
+        selectedDate.setHours(0, 0, 0, 0);
+        const nextDay = new Date(selectedDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+        
+        query = query
+          .gte('created_at', selectedDate.toISOString())
+          .lt('created_at', nextDay.toISOString());
+          
+        console.log('Filtrando órdenes de fecha personalizada:', selectedDate.toISOString(), 'hasta', nextDay.toISOString());
+      }
+
       if (profile.role === 'seller') {
         query = query
           .eq('seller_id', user.id)
@@ -120,6 +151,7 @@ export function OrderList() {
       const { data, error } = await query;
 
       if (error) throw error;
+      console.log(`Se encontraron ${data?.length || 0} órdenes con el filtro aplicado`);
       setOrders(data || []);
     } catch (error) {
       console.error('Error fetching orders:', error);
@@ -212,6 +244,13 @@ export function OrderList() {
     }
   };
 
+  // Obtener fecha actual para mostrar en la interfaz
+  const currentDate = new Date().toLocaleDateString('es-AR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -274,6 +313,75 @@ export function OrderList() {
             <Truck className="w-4 h-4 mr-1" />
             Delivery (D001-D999)
           </button>
+        </div>
+      </div>
+
+      {/* Filtro de fecha */}
+      <div className="bg-white shadow-sm rounded-lg p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <CalendarDays className="h-5 w-5 text-gray-500" />
+            <span className="font-medium text-gray-700">Filtro de fecha:</span>
+            
+            <div className="flex space-x-2">
+              <button 
+                onClick={() => setDateFilter('today')}
+                className={`px-3 py-1 rounded-md text-sm ${
+                  dateFilter === 'today'
+                    ? 'bg-indigo-100 text-indigo-700 font-medium'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Hoy ({currentDate})
+              </button>
+              
+              <button 
+                onClick={() => setDateFilter('all')}
+                className={`px-3 py-1 rounded-md text-sm ${
+                  dateFilter === 'all'
+                    ? 'bg-indigo-100 text-indigo-700 font-medium'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Todas las fechas
+              </button>
+              
+              <button 
+                onClick={() => {
+                  setDateFilter('custom');
+                  if (!customDate) {
+                    // Si no hay fecha personalizada, establecer la fecha actual
+                    const today = new Date().toISOString().split('T')[0];
+                    setCustomDate(today);
+                  }
+                }}
+                className={`px-3 py-1 rounded-md text-sm ${
+                  dateFilter === 'custom'
+                    ? 'bg-indigo-100 text-indigo-700 font-medium'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Fecha específica
+              </button>
+            </div>
+          </div>
+          
+          {dateFilter === 'custom' && (
+            <div className="flex items-center space-x-2">
+              <input
+                type="date"
+                value={customDate}
+                onChange={(e) => setCustomDate(e.target.value)}
+                className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+              />
+              <button
+                onClick={() => fetchOrders()}
+                className="px-3 py-1 bg-indigo-600 text-white rounded-md text-sm"
+              >
+                Aplicar
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -350,7 +458,6 @@ export function OrderList() {
                   </p>
                 )}
 
-
                 {order.is_preorder && order.status !== 'paid' && (
                   <p className="mt-1 text-sm text-gray-500">
                     Seña: ${order.deposit_amount.toFixed(2)}
@@ -359,7 +466,6 @@ export function OrderList() {
                   </p>
                 )}
               </div>
-
 
               {/* Action Buttons - 3 columns */}
               <div className="col-span-3 flex justify-end space-x-2">
@@ -393,7 +499,11 @@ export function OrderList() {
 
         {filteredOrders.length === 0 && (
           <div className="p-6 text-center text-gray-500">
-            No se encontraron órdenes
+            {dateFilter === 'today' ? 
+              'No hay órdenes para hoy' : 
+              dateFilter === 'custom' ? 
+                `No hay órdenes para la fecha seleccionada (${customDate})` :
+                'No se encontraron órdenes'}
           </div>
         )}
       </div>
