@@ -26,6 +26,7 @@ type Order = {
   remaining_amount: number;
   created_at: string;
   payment_method: string | null;
+  discount_total?: number; // opcional para tener guardado el descuento aplicado a la seña (si se paga previamente)
 };
 
 type PaymentMethodType = 'cash' | 'credit' | 'transfer';
@@ -44,16 +45,14 @@ export function PaymentProcessor({ order, registerId, onClose, onPaymentProcesse
   const [discountPercent, setDiscountPercent] = useState(0);
   const [loading, setLoading] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
-  const [couponResetKey, setCouponResetKey] = useState(0); // ✅ NUEVO: para resetear cupón al cambiar el método de pago
+  const [couponResetKey, setCouponResetKey] = useState(0); // para resetear cupón al cambiar el método de pago
   
-  // Verificar que order exista antes de acceder a sus propiedades
-  // Para pedidos anticipados con estado 'pending', permitimos cambiar el monto de la seña
+  // Para pedidos anticipados en estado 'pending' se permite cambiar el monto de la seña
   const [depositAmount, setDepositAmount] = useState<number>(() => {
     if (!order) return 0;
     return order.is_preorder && order.status === 'pending' ? order.deposit_amount : 0;
   });
   
-  // También verificar que order exista antes de acceder a payment_method
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethodType>(() => {
     if (!order) return 'cash';
     return (order.payment_method as PaymentMethodType) || 'cash';
@@ -84,65 +83,52 @@ export function PaymentProcessor({ order, registerId, onClose, onPaymentProcesse
     fetchPreviousCashPayments();
   }, [order?.id]);
   
-
   // Detectar tipo de operación
-const isPayingDeposit = order?.is_preorder && order.status === 'pending';
-const isPayingRemaining = order?.is_preorder && order.status !== 'pending';
-//const isRegularOrder = !order?.is_preorder;
+  const isPayingDeposit = order?.is_preorder && order.status === 'pending';
+  const isPayingRemaining = order?.is_preorder && order.status !== 'pending';
 
-// Calcular el monto base actual
-const baseAmount = order ? (
-  isPayingDeposit
-    ? depositAmount
-    : isPayingRemaining
-      ? order.remaining_amount
-      : order.total_amount
-) : 0;
+  // Calcular el monto base actual
+  const baseAmount = order ? (
+    isPayingDeposit
+      ? depositAmount
+      : isPayingRemaining
+        ? order.remaining_amount
+        : order.total_amount
+  ) : 0;
 
-// Calcular el monto sobre el cual aplicar el descuento según el escenario
-let discountableAmount = 0;
+  // Calcular el monto sobre el cual aplicar el descuento según el escenario
+  let discountableAmount = 0;
 
-if (isPayingRemaining) {
-  if (cashPaidBefore > 0 && selectedPaymentMethod !== 'cash') {
-    // Seña fue en efectivo, saldo ahora con tarjeta => aplicar sobre la seña
-    discountableAmount = cashPaidBefore;
-  } else if (selectedPaymentMethod === 'cash') {
-    // Saldo ahora en efectivo => aplicar sobre todo el efectivo (anterior + actual)
-    discountableAmount = cashPaidBefore + (order!.remaining_amount || 0);
+  if (isPayingRemaining) {
+    if (cashPaidBefore > 0 && selectedPaymentMethod !== 'cash') {
+      // Seña fue en efectivo, saldo ahora con tarjeta => aplicar sobre la seña
+      discountableAmount = cashPaidBefore;
+    } else if (selectedPaymentMethod === 'cash') {
+      // Saldo ahora en efectivo => aplicar sobre todo el efectivo (anterior + actual)
+      discountableAmount = cashPaidBefore + (order!.remaining_amount || 0);
+    }
+  } else if (isPayingDeposit && selectedPaymentMethod === 'cash') {
+    // Seña en efectivo
+    discountableAmount = depositAmount;
+  } else if (!order?.is_preorder && selectedPaymentMethod === 'cash') {
+    // Pedido común en efectivo
+    discountableAmount = order!.total_amount;
   }
-} else if (isPayingDeposit && selectedPaymentMethod === 'cash') {
-  // Seña en efectivo
-  discountableAmount = depositAmount;
-} else if (!order?.is_preorder && selectedPaymentMethod === 'cash') {
-  // Pedido común en efectivo
-  discountableAmount = order!.total_amount;
-}
 
-/* const discountAmount = (discountableAmount * discountPercent) / 100;
-const totalWithDiscount = order!.total_amount - discountAmount;
-const finalAmount = isPayingDeposit
-  ? Math.max(0, depositAmount - discountAmount) // seña anticipada
-  : isPayingRemaining
-    ? Math.max(0, order!.remaining_amount - (selectedPaymentMethod === 'cash' ? discountAmount : 0)) // saldo restante
-    : Math.max(0, totalWithDiscount); // pedido común */
-
-const discountAmount = (discountableAmount * discountPercent) / 100;
-const totalWithDiscount = order!.total_amount - discountAmount;
-const finalAmount = isPayingDeposit
-  ? Math.max(0, depositAmount - discountAmount)
-  : isPayingRemaining
-    ? Math.max(0, order!.remaining_amount - discountAmount) // 👈 aplica descuento siempre si corresponde
-    : Math.max(0, order!.total_amount - discountAmount);
-
+  const discountAmount = (discountableAmount * discountPercent) / 100;
+  const totalWithDiscount = order!.total_amount - discountAmount;
+  const finalAmount = isPayingDeposit
+    ? Math.max(0, depositAmount - discountAmount)
+    : isPayingRemaining
+      ? Math.max(0, order!.remaining_amount - discountAmount)
+      : Math.max(0, order!.total_amount - discountAmount);
 
   // Determinar el tipo de pago para mostrar en la confirmación
   const getPaymentType = (): 'full' | 'deposit' | 'remaining' => {
     if (!order) return 'full';
-    
     if (order.is_preorder) {
       return order.status === 'pending' ? 'deposit' : 'remaining';
     }
-    
     return 'full';
   };
 
@@ -151,7 +137,6 @@ const finalAmount = isPayingDeposit
   };
 
   const handlePaymentRequest = () => {
-    // Mostrar el diálogo de confirmación antes de procesar el pago
     setShowConfirmation(true);
   };
 
@@ -159,9 +144,8 @@ const finalAmount = isPayingDeposit
     if (!user || !order) return;
     setError(null);
     setLoading(true);
-    setShowConfirmation(false); // Ocultar diálogo de confirmación
+    setShowConfirmation(false);
 
-    // Log de depuración para verificar valores iniciales
     console.log("Iniciando proceso de pago con valores:", {
       baseAmount,
       discountPercent,
@@ -174,13 +158,10 @@ const finalAmount = isPayingDeposit
     });
 
     try {
-      // ⚠️ Solo bloqueamos si no hubo efectivo en ningún momento
       if (discountPercent > 0 && selectedPaymentMethod !== 'cash' && cashPaidBefore === 0) {
         throw new Error('Los descuentos solo aplican a pagos en efectivo');
       }
 
-      // Si es un pedido anticipado y estamos cobrando la seña con un monto personalizado,
-      // necesitamos actualizar el registro de la orden con los nuevos montos
       if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
         const newRemaining = order.total_amount - depositAmount;
         
@@ -195,7 +176,6 @@ const finalAmount = isPayingDeposit
         if (updateOrderError) throw updateOrderError;
       }
       
-      // Create payment record
       const isDeposit = order.is_preorder && order.status === 'pending';
       const payCash = selectedPaymentMethod === 'cash' ? finalAmount : 0;
       const payNonCash = selectedPaymentMethod !== 'cash' ? finalAmount : 0;
@@ -217,9 +197,7 @@ const finalAmount = isPayingDeposit
 
       if (paymentError) throw paymentError;
 
-      // If there's a discount and it's from a coupon, create coupon usage record
       if (discountPercent > 0) {
-        // Intentamos encontrar el cupón que se aplicó
         const { data: coupons, error: couponsError } = await supabase
           .from('coupons')
           .select('id')
@@ -227,7 +205,6 @@ const finalAmount = isPayingDeposit
           .limit(1);
           
         if (!couponsError && coupons && coupons.length > 0) {
-          // Registramos el uso del cupón
           const { error: usageError } = await supabase
             .from('coupon_usages')
             .insert({
@@ -241,32 +218,27 @@ const finalAmount = isPayingDeposit
         }
       }
 
-      // Update order status and payment info
       const newStatus = order.is_preorder ? 
         order.status === 'pending' ? 'processing' : 'paid' : 'paid';
       
-      // Datos base para actualizar la orden
-let updateOrderData: Record<string, any> = {
-  status: newStatus,
-  cashier_id: user.id,
-  payment_method: selectedPaymentMethod,
-  last_payment_date: new Date().toISOString()
-};
+      let updateOrderData: Record<string, any> = {
+        status: newStatus,
+        cashier_id: user.id,
+        payment_method: selectedPaymentMethod,
+        last_payment_date: new Date().toISOString()
+      };
 
-// Si hay descuento, guardar el porcentaje, el total descontado y el total final con descuento
-if (discountPercent > 0) {
-  updateOrderData.discount_percentage = discountPercent;
-  updateOrderData.discount_total = discountAmount;
-  updateOrderData.total_amount_with_discount = order.total_amount - discountAmount;
-}
+      if (discountPercent > 0) {
+        updateOrderData.discount_percentage = discountPercent;
+        updateOrderData.discount_total = discountAmount;
+        updateOrderData.total_amount_with_discount = order.total_amount - discountAmount;
+      }
 
-// Si es seña, también actualizamos deposit y remaining
-if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
-  updateOrderData.deposit_amount = depositAmount;
-  updateOrderData.remaining_amount = order.total_amount - depositAmount;
-}
-     
-        
+      if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
+        updateOrderData.deposit_amount = depositAmount;
+        updateOrderData.remaining_amount = order.total_amount - depositAmount;
+      }
+       
       const { error: orderError } = await supabase
         .from('orders')
         .update(updateOrderData)
@@ -274,7 +246,6 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
 
       if (orderError) throw orderError;
 
-      // Obtener los valores actuales del registro
       const { data: registerData, error: fetchError } = await supabase
         .from('cash_registers')
         .select('cash_sales, card_sales, transfer_sales, deposits_received')
@@ -283,17 +254,13 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
         
       if (fetchError) throw fetchError;
       
-      // Crear una transacción para actualizar tanto la orden como la caja registradora
-      // Calcular los nuevos valores
       let updateObject: Record<string, any> = {};
       
-      // Asegurarnos de usar valores iniciales correctos
       const currentCashSales = registerData.cash_sales || 0;
       const currentCardSales = registerData.card_sales || 0;
       const currentTransferSales = registerData.transfer_sales || 0;
       const currentDeposits = registerData.deposits_received || 0;
       
-      // Actualizar según el método de pago
       if (selectedPaymentMethod === 'cash') {
         updateObject.cash_sales = currentCashSales + finalAmount;
       } else if (selectedPaymentMethod === 'credit') {
@@ -302,7 +269,6 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
         updateObject.transfer_sales = currentTransferSales + finalAmount;
       }
       
-      // Si es un pago de seña, actualizar el registro de señas
       if (order.is_preorder && order.status === 'pending') {
         updateObject.deposits_received = currentDeposits + finalAmount;
       }
@@ -313,7 +279,6 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
         finalAmount
       });
       
-      // Actualizar el registro
       const { error: registerError } = await supabase
         .from('cash_registers')
         .update(updateObject)
@@ -321,13 +286,12 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
         
       if (registerError) throw registerError;
 
-      // Add to order queue if payment completes the order
       if (newStatus === 'paid') {
         const { error: queueError } = await supabase
           .from('order_queue')
           .insert({
             order_id: order.id,
-            priority: order.is_preorder ? 1 : 0, // Pre-orders get higher priority
+            priority: order.is_preorder ? 1 : 0,
             status: 'waiting'
           });
 
@@ -342,7 +306,6 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
     }
   };
 
-  // Verify that order exists before proceeding
   if (!order) {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -363,7 +326,6 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
     );
   }
 
-  // Don't allow payment if order is already paid
   if (order.status === 'paid') {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -406,9 +368,9 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
                 Total: ${order.total_amount.toFixed(2)}
               </p>
               {discountPercent > 0 && (
-              <p className="text-sm text-green-600 font-medium">
-                Total con descuento: ${(order.total_amount - discountAmount).toFixed(2)}
-              </p>
+                <p className="text-sm text-green-600 font-medium">
+                  Total con descuento: ${(order.total_amount - discountAmount).toFixed(2)}
+                </p>
               )}
               {order.is_preorder && (
                 <>
@@ -422,8 +384,15 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
                   ) : (
                     <>
                       <p className="text-sm text-gray-500">
-                        Seña pagada: ${order.deposit_amount.toFixed(2)} (
-                        {cashPaidBefore >= order.deposit_amount ? 'efectivo' : 'tarjeta'})
+                        Seña {order.status === 'pending' ? 'a cobrar' : 'pagada'}: $
+                        {(order.status === 'pending'
+                          ? depositAmount - discountAmount
+                          : order.deposit_amount - (order.discount_total || 0)
+                        ).toFixed(2)} (
+                        {cashPaidBefore >= (order.status === 'pending'
+                          ? depositAmount - discountAmount
+                          : order.deposit_amount - (order.discount_total || 0)
+                        ) ? 'efectivo' : 'tarjeta'})
                       </p>
                       <p className="text-sm text-gray-500">
                         Restante: ${order.remaining_amount.toFixed(2)}
@@ -492,7 +461,6 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
             </div>
           </div>
 
-          {/* Mostrar la sección de cupones solo para pedidos regulares o al pagar el saldo restante */}
           {(!order.is_preorder || order.status !== 'pending' || (order.status === 'pending' && depositAmount === order.total_amount)) && (
             <div className="p-4 border-b border-gray-200">
               <CouponValidator
@@ -548,7 +516,6 @@ if (order.is_preorder && order.status === 'pending' && depositAmount > 0) {
         </div>
       </div>
 
-      {/* Diálogo de confirmación */}
       {showConfirmation && (
         <PaymentConfirmationDialog
           paymentMethod={selectedPaymentMethod}
