@@ -118,13 +118,21 @@ if (isPayingRemaining) {
   discountableAmount = order!.total_amount;
 }
 
-const discountAmount = (discountableAmount * discountPercent) / 100;
+/* const discountAmount = (discountableAmount * discountPercent) / 100;
 const totalWithDiscount = order!.total_amount - discountAmount;
 const finalAmount = isPayingDeposit
   ? Math.max(0, depositAmount - discountAmount) // seña anticipada
   : isPayingRemaining
     ? Math.max(0, order!.remaining_amount - (selectedPaymentMethod === 'cash' ? discountAmount : 0)) // saldo restante
-    : Math.max(0, totalWithDiscount); // pedido común
+    : Math.max(0, totalWithDiscount); // pedido común */
+
+const discountAmount = (discountableAmount * discountPercent) / 100;
+const totalWithDiscount = order!.total_amount - discountAmount;
+const finalAmount = isPayingDeposit
+  ? Math.max(0, depositAmount - discountAmount)
+  : isPayingRemaining
+    ? Math.max(0, order!.remaining_amount - discountAmount) // 👈 aplica descuento siempre si corresponde
+    : Math.max(0, order!.total_amount - discountAmount);
 
 
   // Determinar el tipo de pago para mostrar en la confirmación
